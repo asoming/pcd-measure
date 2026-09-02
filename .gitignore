@@ -1,0 +1,30 @@
+# CMake build output
+build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+
+# Editors and local settings
+.idea/
+.vscode/
+*.user
+*~
+
+# Point-cloud recordings and user projects
+*.pcd
+!tests/fixtures/*.pcd
+*.ply
+*.bin
+*.olx
+*.pcdmeasure
+*.odinpcd
+
+# Generated exports
+*_measurements.csv
+*_measurements.json
+*_view_*.png
+
+# Logs and crash dumps
+*.log
+core
+core.*
