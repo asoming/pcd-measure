@@ -2,7 +2,7 @@
 Version=1.0
 Type=Application
 Name=PCD 点云测量工具
-Comment=查看彩色 PCD、统计整体尺寸并进行两点测距
+Comment=测量分析 PCD 点云，回放并诊断 ROS1/ROS2 bag
 Exec="@PROJECT_DIR@/run.sh" %F
 Icon=@PROJECT_DIR@/assets/pcd_measure.svg
 Terminal=false

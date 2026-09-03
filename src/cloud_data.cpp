@@ -152,6 +152,11 @@ CloudLoadResult load_pcd_and_analyze(const QString & path, std::size_t maximum_d
   result.file_bytes = static_cast<std::uint64_t>(QFileInfo(path).size());
   result.encoding = read_encoding(path);
 
+  if (maximum_display_points == 0) {
+    result.error = QStringLiteral("最大显示点数必须大于 0。");
+    return result;
+  }
+
   if (!QFileInfo::exists(path)) {
     result.error = QStringLiteral("文件不存在：%1").arg(path);
     return result;
@@ -278,7 +283,9 @@ CloudLoadResult load_pcd_and_analyze(const QString & path, std::size_t maximum_d
   result.metrics.raw_bounds = percentile_bounds(xs, ys, zs, 0.0, 1.0);
   result.metrics.robust_axis_bounds = percentile_bounds(
     xs, ys, zs, kRobustLower, kRobustUpper);
-  const Bounds3d pca_crop = percentile_bounds(xs, ys, zs, kPcaCropLower, kPcaCropUpper);
+  const Bounds3d pca_crop = result.cloud->size() >= 200 ?
+    percentile_bounds(xs, ys, zs, kPcaCropLower, kPcaCropUpper) :
+    result.metrics.raw_bounds;
 
   Eigen::Vector2d mean = Eigen::Vector2d::Zero();
   std::size_t pca_count = 0;

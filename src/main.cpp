@@ -19,11 +19,16 @@ int main(int argc, char * argv[])
   QApplication app(argc, argv);
   QCoreApplication::setApplicationName(QStringLiteral("PCD Measure"));
   QApplication::setApplicationDisplayName(QStringLiteral("PCD 点云测量工具"));
-  QCoreApplication::setApplicationVersion(QStringLiteral("1.2.0"));
+  QCoreApplication::setApplicationVersion(QStringLiteral("2.0.0"));
   QCoreApplication::setOrganizationName(QStringLiteral("PCD Tools"));
 
   MainWindow window;
   window.show();
+
+  if (qEnvironmentVariableIsSet("PCD_MEASURE_TEST_EXIT_AFTER_LOAD")) {
+    QObject::connect(&window, &MainWindow::cloudLoaded, &app,
+      [&app](bool success) { app.exit(success ? 0 : 3); });
+  }
 
   if (app.arguments().size() > 1) {
     const QString initial_path = app.arguments().at(1);

@@ -14,6 +14,15 @@ if [[ ! -x "${project_dir}/build/bin/pcd_measure" ]]; then
   "${project_dir}/build.sh"
 fi
 
+if [[ "${PCD_MEASURE_SKIP_ROSBAG_SETUP:-0}" != "1" &&
+  ! -x "${project_dir}/.rosbag-venv/bin/python" ]]; then
+  echo "正在安装 ROS1/MCAP 离线解析支持……"
+  if ! "${project_dir}/scripts/setup_rosbag_tools.sh"; then
+    echo "警告：ROS bag 可选依赖安装失败；ROS2 SQLite 基础诊断仍可使用。" >&2
+    echo "稍后可运行：./scripts/setup_rosbag_tools.sh" >&2
+  fi
+fi
+
 desktop_dir="${PCD_MEASURE_DESKTOP_DIR:-}"
 if [[ -z "${desktop_dir}" ]] && command -v xdg-user-dir >/dev/null 2>&1; then
   desktop_dir="$(xdg-user-dir DESKTOP)"
@@ -22,7 +31,7 @@ if [[ -z "${desktop_dir}" ]]; then
   desktop_dir="${HOME:?}/Desktop"
 fi
 
-applications_dir="${XDG_DATA_HOME:-${HOME:?}/.local/share}/applications"
+applications_dir="${PCD_MEASURE_APPLICATIONS_DIR:-${XDG_DATA_HOME:-${HOME:?}/.local/share}/applications}"
 desktop_launcher="${desktop_dir}/PCD 点云测量工具.desktop"
 menu_launcher="${applications_dir}/pcd-measure.desktop"
 temporary_launcher="$(mktemp)"

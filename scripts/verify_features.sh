@@ -60,5 +60,17 @@ print(f"全量点数 {full['points']['finite']:,}，降采样显示 {lod['points
 print(f"推荐尺寸 {length:.3f} × {width:.3f} × {height:.3f} m")
 PY
 
-PCD_MEASURE_TEST_PCD="$pcd_path" "$project_dir/build/bin/pcd_gui_test"
+ctest --test-dir "$project_dir/build" --output-on-failure
+PCD_MEASURE_TEST_PCD="$pcd_path" \
+PCD_MEASURE_TEST_REPORT_PATH="$verify_dir/reference-report.pdf" \
+PCD_MEASURE_TEST_ACTUAL_SCREENSHOT="$verify_dir/reference-ui.png" \
+PCD_MEASURE_TEST_ACTUAL_ANNOTATION_SCREENSHOT="$verify_dir/reference-annotations.png" \
+PCD_MEASURE_TEST_UI_SCREENSHOT="$verify_dir/minimum-ui.png" \
+  "$project_dir/build/bin/pcd_gui_test"
+PCD_MEASURE_TEST_PCD="$pcd_path" \
+  "$project_dir/build/bin/pcd_real_workflow_test"
+test -s "$verify_dir/reference-report.pdf"
+test -s "$verify_dir/reference-ui.png"
+test -s "$verify_dir/reference-annotations.png"
+test -s "$verify_dir/minimum-ui.png"
 echo "PCD 点云测量工具全部自动验收通过。"

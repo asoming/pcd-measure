@@ -1,0 +1,3 @@
+# Optional readers used for ROS1 .bag and ROS2 MCAP deep diagnostics.
+rosbags>=0.11.5,<0.12
+PyYAML>=5.4

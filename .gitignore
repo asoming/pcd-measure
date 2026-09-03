@@ -1,5 +1,6 @@
 # CMake build output
 build/
+.rosbag-venv/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
@@ -9,6 +10,8 @@ CMakeFiles/
 .vscode/
 *.user
 *~
+__pycache__/
+*.py[cod]
 
 # Point-cloud recordings and user projects
 *.pcd
@@ -16,6 +19,12 @@ CMakeFiles/
 *.ply
 *.bin
 *.olx
+*.bag
+*.db3
+*.db3-shm
+*.db3-wal
+*.mcap
+metadata.yaml
 *.pcdmeasure
 *.odinpcd
 
