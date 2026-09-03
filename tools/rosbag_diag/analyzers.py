@@ -21,6 +21,9 @@ from .tf_analysis import TfAnalyzer
 ProgressCallback = Callable[[int, str], None]
 
 
+_SEPARATE_CLOCK_EPOCH_THRESHOLD_MS = 24.0 * 60.0 * 60.0 * 1000.0
+
+
 @dataclass(frozen=True)
 class DiagnosticOptions:
     """Tunable thresholds for one diagnostic run."""
@@ -104,6 +107,16 @@ class _HeaderTiming:
         assert self.lag_ms is not None
         assert self.intervals is not None
         absolute = [abs(value) for value in self.lag_ms]
+        lag_median = median(self.lag_ms) if self.lag_ms else None
+        residuals = (
+            [abs(value - lag_median) for value in self.lag_ms]
+            if lag_median is not None
+            else []
+        )
+        separate_clock_epoch = bool(
+            lag_median is not None
+            and abs(lag_median) >= _SEPARATE_CLOCK_EPOCH_THRESHOLD_MS
+        )
         timing = self.intervals.summary(gap_factor=gap_factor)
         valid_samples = max(0, self.count - self.zero_count)
         scale = topic_count / valid_samples if valid_samples else 1.0
@@ -138,9 +151,13 @@ class _HeaderTiming:
             "missing_or_zero_stamps": self.zero_count,
             "backward_stamps": self.backwards,
             "lag_mean_ms": sum(self.lag_ms) / len(self.lag_ms) if self.lag_ms else None,
-            "lag_median_ms": median(self.lag_ms) if self.lag_ms else None,
+            "lag_median_ms": lag_median,
             "lag_p95_abs_ms": percentile(absolute, 0.95),
             "lag_max_abs_ms": max(absolute) if absolute else None,
+            "lag_p95_residual_ms": percentile(residuals, 0.95),
+            "storage_clock_relation": (
+                "separate_epoch" if separate_clock_epoch else "aligned"
+            ) if self.lag_ms else "unknown",
             "timing": timing,
         }
 
@@ -236,11 +253,15 @@ def diagnose_bag(
     header_timings: dict[str, _HeaderTiming] = {}
     decoded_messages = 0
     decoded_topics: set[str] = set()
+    decoded_messages_by_topic: dict[str, int] = {}
     if options.deep_analysis and options.maximum_payload_samples_per_topic > 0:
         report_progress(58, "抽样解析 TF 与传感器载荷")
         for record in source.iter_decoded_samples(options.maximum_payload_samples_per_topic):
             decoded_messages += 1
             decoded_topics.add(record.topic)
+            decoded_messages_by_topic[record.topic] = (
+                decoded_messages_by_topic.get(record.topic, 0) + 1
+            )
             if attr(record.message, "header") is not None:
                 header = header_timings.setdefault(record.topic, _HeaderTiming())
                 header.add(record.timestamp_ns, message_stamp_ns(record.message))
@@ -249,12 +270,34 @@ def diagnose_bag(
             if decoded_messages % 500 == 0:
                 report_progress(65, "检查 TF 跳变、传感器无效值与冻结帧")
 
+    dynamic_tf_topics = [
+        topic for topic in topic_accumulators if topic.strip("/") == "tf"
+    ]
+    tf_timing_complete = all(
+        decoded_messages_by_topic.get(topic, 0) >= topic_accumulators[topic].count
+        for topic in dynamic_tf_topics
+    )
     tf_result, tf_issues = tf_analyzer.finish(
         translation_jump_m=options.tf_translation_jump_m,
         rotation_jump_deg=options.tf_rotation_jump_deg,
         maximum_speed_mps=options.tf_maximum_speed_mps,
         gap_factor=options.gap_factor,
+        timing_complete=tf_timing_complete,
     )
+    if dynamic_tf_topics and not tf_timing_complete and tf_result.get("available"):
+        decoded_tf = sum(decoded_messages_by_topic.get(topic, 0) for topic in dynamic_tf_topics)
+        total_tf = sum(topic_accumulators[topic].count for topic in dynamic_tf_topics)
+        tf_issues.append(Issue(
+            issue_id="TF_TIMING_SAMPLED",
+            severity="notice",
+            category="TF",
+            topic="/tf",
+            title="TF 载荷采用抽样，未据此判定更新断档",
+            evidence=f"已解析 {decoded_tf}/{total_tf} 条动态 TF 消息。",
+            impact="树结构、外参和跳变仍会检查，但抽样序列不能可靠证明中间是否断档。",
+            suggestion="需要精确断档结论时，提高“载荷抽样”到不少于动态 TF 消息总数后重跑。",
+            confidence="high",
+        ))
     sensors, sensor_issues = sensor_analyzer.finish()
     issues.extend(tf_issues)
     issues.extend(sensor_issues)
@@ -267,6 +310,41 @@ def diagnose_bag(
         for topic, state in header_timings.items()
         if topic in topic_accumulators
     }
+    separate_clock_topics = sorted(
+        topic for topic, summary in header_summaries.items()
+        if summary.get("storage_clock_relation") == "separate_epoch"
+    )
+    if separate_clock_topics:
+        uses_simulated_time = "/clock" in source.info.topics
+        preview = ", ".join(separate_clock_topics[:6])
+        if len(separate_clock_topics) > 6:
+            preview += f" 等 {len(separate_clock_topics)} 个话题"
+        issues.append(Issue(
+            issue_id="HEADER_STORAGE_CLOCK_DOMAIN",
+            severity="notice" if uses_simulated_time else "warning",
+            category="时间戳",
+            title=(
+                "仿真 header 与 bag 存储时间使用不同时间基准"
+                if uses_simulated_time
+                else "header 与 bag 存储时间疑似使用不同时间基准"
+            ),
+            evidence=(
+                f"检测到 /clock；{preview}的 header.stamp 与存储时间相差一个固定纪元。"
+                if uses_simulated_time
+                else f"{preview}的 header.stamp 与存储时间相差超过 24 小时。"
+            ),
+            impact=(
+                "这是仿真 bag 的常见布局，不按传输延迟扣分；回放节点应启用 use_sim_time。"
+                if uses_simulated_time
+                else "两种时间不能直接相减得到传输延迟，跨话题同步也可能受到影响。"
+            ),
+            suggestion=(
+                "回放时发布 /clock，并确认所有消费节点启用 use_sim_time。"
+                if uses_simulated_time
+                else "确认设备时钟、ROS 时间和系统时间的纪元；需要融合时先统一时间基准。"
+            ),
+            confidence="high",
+        ))
     timing_fields = (
         "first_time_ns",
         "last_time_ns",
@@ -299,6 +377,8 @@ def diagnose_bag(
             "lag_median_ms": None,
             "lag_p95_abs_ms": None,
             "lag_max_abs_ms": None,
+            "lag_p95_residual_ms": None,
+            "storage_clock_relation": "unknown",
             "timing": {},
         })
         topic_result["header_timing"] = header_summary
@@ -380,7 +460,9 @@ def diagnose_bag(
     bag = _bag_to_dict(source, observed_messages, decoded_messages, decoded_topics)
     recommendations = _recommendations(issues)
     limitations = [
+        "健康评分是当前阈值与解析覆盖范围下的排查优先级，不等同于 bag 可读性、任务成功率或检定结论。",
         "丢包数根据时间间隙和中位周期估算；没有发布端序号时不能区分真实丢包、停发和录包漏写。",
+        "存在 /clock 或固定纪元差时，header.stamp 与存储时间不直接相减为传输延迟；报告只比较同一时间基准的数据。",
         "QoS 不匹配需要订阅端配置才能最终确认；离线报告只标记缺失元数据或同话题配置冲突风险。",
         "TF 的净位移是位姿变化指标；机器人正常运动也会产生变化，跳变告警才表示可疑不连续。",
         "传感器噪声使用抽样与通用阈值筛查；运动工况、设备量程和厂商规格可能改变合理范围。",
@@ -408,7 +490,11 @@ def _topic_timing_issues(topic: dict[str, Any], options: DiagnosticOptions) -> l
     count = int(topic.get("count", 0))
     expected = _expected_minimum_hz(name, str(topic.get("type", "")), options.control_minimum_hz)
     mean_hz = topic.get("mean_hz")
-    if count == 1:
+    msgtype = str(topic.get("type", ""))
+    static_topic = _is_static_topic(name, msgtype)
+    event_topic = _is_event_driven_topic(name, msgtype)
+    aggregate_tf_topic = name.rstrip("/") == "/tf"
+    if count == 1 and not static_topic:
         issues.append(Issue(
             issue_id=f"TOPIC_SINGLE_MESSAGE:{name}",
             severity="notice",
@@ -420,7 +506,8 @@ def _topic_timing_issues(topic: dict[str, Any], options: DiagnosticOptions) -> l
             suggestion="确认该话题是否按设计只发布一次。",
             confidence="medium",
         ))
-    if expected and mean_hz is not None and mean_hz < expected:
+    rate_tolerance = max(0.01, (expected or 0.0) * 0.005)
+    if expected and mean_hz is not None and mean_hz + rate_tolerance < expected:
         severity = "critical" if mean_hz < expected * 0.5 else "warning"
         issues.append(Issue(
             issue_id=f"TOPIC_RATE_LOW:{name}",
@@ -435,7 +522,13 @@ def _topic_timing_issues(topic: dict[str, Any], options: DiagnosticOptions) -> l
         ))
 
     jitter = topic.get("jitter_cv_percent")
-    if count >= 10 and jitter is not None and jitter > options.jitter_warning_percent:
+    if (
+        count >= 10
+        and not event_topic
+        and not aggregate_tf_topic
+        and jitter is not None
+        and jitter > options.jitter_warning_percent
+    ):
         severity = "critical" if jitter > options.jitter_critical_percent else "warning"
         issues.append(Issue(
             issue_id=f"TOPIC_JITTER:{name}",
@@ -453,7 +546,12 @@ def _topic_timing_issues(topic: dict[str, Any], options: DiagnosticOptions) -> l
         ))
 
     drop_ratio = float(topic.get("estimated_drop_ratio_percent", 0.0) or 0.0)
-    if drop_ratio > options.drop_warning_percent:
+    if (
+        not static_topic
+        and not event_topic
+        and not aggregate_tf_topic
+        and drop_ratio > options.drop_warning_percent
+    ):
         severity = "critical" if drop_ratio > options.drop_critical_percent else "warning"
         issues.append(Issue(
             issue_id=f"TOPIC_GAPS:{name}",
@@ -505,7 +603,7 @@ def _header_timing_issues(
     issues: list[Issue] = []
     decoded = int(summary.get("decoded_samples", 0))
     zero = int(summary.get("missing_or_zero_stamps", 0))
-    if decoded and zero / decoded > 0.05:
+    if decoded and zero / decoded > 0.05 and not _is_static_topic(topic, ""):
         issues.append(Issue(
             issue_id=f"HEADER_STAMP_MISSING:{topic}",
             severity="warning",
@@ -531,7 +629,8 @@ def _header_timing_issues(
             confidence="high",
         ))
     lag_p95 = summary.get("lag_p95_abs_ms")
-    if lag_p95 is not None and lag_p95 > options.header_lag_warning_ms:
+    same_clock_epoch = summary.get("storage_clock_relation") != "separate_epoch"
+    if same_clock_epoch and lag_p95 is not None and lag_p95 > options.header_lag_warning_ms:
         severity = "critical" if lag_p95 > max(10_000.0, options.header_lag_warning_ms * 100.0) else "warning"
         issues.append(Issue(
             issue_id=f"HEADER_STORAGE_LAG:{topic}",
@@ -615,6 +714,36 @@ def _is_control_topic(topic: str, msgtype: str) -> bool:
             text,
         )
     )
+
+
+def _is_static_topic(topic: str, msgtype: str) -> bool:
+    normalized = topic.rstrip("/").lower()
+    leaf = normalized.rsplit("/", 1)[-1]
+    lowered_type = msgtype.lower()
+    return (
+        normalized == "/tf_static"
+        or leaf in {"map", "robot_description"}
+        or lowered_type.endswith("/occupancygrid") and leaf == "map"
+    )
+
+
+def _is_event_driven_topic(topic: str, msgtype: str) -> bool:
+    if _is_static_topic(topic, msgtype):
+        return True
+    normalized = topic.rstrip("/").lower()
+    leaf = normalized.rsplit("/", 1)[-1]
+    return leaf in {
+        "amcl_pose",
+        "clicked_point",
+        "goal",
+        "goal_pose",
+        "initialpose",
+        "parameter_events",
+        "particle_cloud",
+        "path",
+        "plan",
+        "waypoints",
+    }
 
 
 def _expected_minimum_hz(topic: str, msgtype: str, control_minimum_hz: float) -> float | None:

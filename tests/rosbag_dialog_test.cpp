@@ -3,6 +3,7 @@
 #include <QCheckBox>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QLabel>
 #include <QProcess>
 #include <QProgressBar>
@@ -127,12 +128,15 @@ void RosbagDialogTest::runs_diagnostic_journey_and_populates_tables()
   auto * topics = dialog.findChild<QTableWidget *>(QStringLiteral("rosbagTopicTable"));
   auto * issues = dialog.findChild<QTableWidget *>(QStringLiteral("rosbagIssueTable"));
   auto * score = dialog.findChild<QLabel *>(QStringLiteral("rosbagScore"));
+  auto * open_report = dialog.findChild<QPushButton *>(
+    QStringLiteral("openRosbagReportButton"));
   QVERIFY(deep);
   QVERIFY(diagnose);
   QVERIFY(progress);
   QVERIFY(topics);
   QVERIFY(issues);
   QVERIFY(score);
+  QVERIFY(open_report);
   deep->setChecked(false);
 
   diagnose->click();
@@ -142,6 +146,41 @@ void RosbagDialogTest::runs_diagnostic_journey_and_populates_tables()
   QVERIFY(issues->rowCount() >= 1);
   QVERIFY(score->text().contains(QStringLiteral("/ 100")));
   QVERIFY(diagnose->isEnabled());
+
+  const QString browser_bin = temporary.filePath(QStringLiteral("browser-bin"));
+  QVERIFY(QDir().mkpath(browser_bin));
+  const QString xdg_settings_path = QDir(browser_bin).filePath(QStringLiteral("xdg-settings"));
+  QFile xdg_settings(xdg_settings_path);
+  QVERIFY(xdg_settings.open(QIODevice::WriteOnly));
+  xdg_settings.write("#!/usr/bin/env bash\nprintf '%s\\n' 'microsoft-edge.desktop'\n");
+  xdg_settings.close();
+  QVERIFY(xdg_settings.setPermissions(
+    QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
+
+  const QString opener_path = QDir(browser_bin).filePath(QStringLiteral("microsoft-edge"));
+  const QString capture_path = temporary.filePath(QStringLiteral("opened-report.txt"));
+  QFile opener(opener_path);
+  QVERIFY(opener.open(QIODevice::WriteOnly));
+  opener.write(
+    "#!/usr/bin/env bash\n"
+    "printf '%s' \"$1\" > \"$PCD_MEASURE_HTML_OPEN_CAPTURE\"\n");
+  opener.close();
+  QVERIFY(opener.setPermissions(
+    QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
+  const QByteArray original_path = qgetenv("PATH");
+  qputenv("PATH", QFile::encodeName(browser_bin) + ':' + original_path);
+  qputenv("PCD_MEASURE_HTML_OPEN_CAPTURE", QFile::encodeName(capture_path));
+  QVERIFY(open_report->isEnabled());
+  open_report->click();
+  QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(capture_path), 5000);
+  QFile captured(capture_path);
+  QVERIFY(captured.open(QIODevice::ReadOnly));
+  const QByteArray opened_url = captured.readAll();
+  QVERIFY(opened_url.startsWith("file:"));
+  QVERIFY(opened_url.endsWith(".html"));
+  qputenv("PATH", original_path);
+  qunsetenv("PCD_MEASURE_HTML_OPEN_CAPTURE");
+
   const QString screenshot_path = qEnvironmentVariable("PCD_MEASURE_ROSBAG_RESULT_SCREENSHOT");
   if (!screenshot_path.isEmpty()) {
     QVERIFY2(dialog.grab().save(screenshot_path), qPrintable(screenshot_path));

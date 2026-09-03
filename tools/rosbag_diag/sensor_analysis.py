@@ -445,16 +445,29 @@ class SensorAnalyzer:
                 confidence="medium",
             ))
         if state.maximum_repeat_run >= 10:
+            state_can_legitimately_hold = state.role in {"里程计", "关节状态"}
             issues.append(Issue(
                 issue_id=f"SENSOR_FROZEN:{state.topic}",
-                severity="warning",
-                category="硬件",
+                severity="notice" if state_can_legitimately_hold else "warning",
+                category="传感器" if state_can_legitimately_hold else "硬件",
                 topic=state.topic,
-                title=f"{state.role}疑似冻结或重复帧",
+                title=(
+                    f"{state.role}长时间保持相同状态"
+                    if state_can_legitimately_hold
+                    else f"{state.role}疑似冻结或重复帧"
+                ),
                 evidence=f"连续相同样本最长 {state.maximum_repeat_run + 1} 帧。",
-                impact="话题仍有频率，但硬件数据可能已经停止更新。",
-                suggestion="检查设备心跳、DMA/USB/网络传输和驱动缓存复用。",
-                confidence="medium",
+                impact=(
+                    "机器人静止时可能完全正常；若当时有运动指令，则数据可能停滞。"
+                    if state_can_legitimately_hold
+                    else "话题仍有频率，但硬件数据可能已经停止更新。"
+                ),
+                suggestion=(
+                    "结合 cmd_vel、TF 和现场运动状态复核，不单凭重复值判定硬件故障。"
+                    if state_can_legitimately_hold
+                    else "检查设备心跳、DMA/USB/网络传输和驱动缓存复用。"
+                ),
+                confidence="low" if state_can_legitimately_hold else "medium",
             ))
 
         if state.role == "IMU":

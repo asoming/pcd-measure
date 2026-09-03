@@ -184,6 +184,7 @@ class TfAnalyzer:
         rotation_jump_deg: float,
         maximum_speed_mps: float,
         gap_factor: float,
+        timing_complete: bool = True,
     ) -> tuple[dict[str, Any], list[Issue]]:
         edge_summaries = [edge.summary() for edge in self._edges.values()]
         edge_summaries.sort(key=lambda item: (item["parent"], item["child"], item["static"]))
@@ -210,6 +211,7 @@ class TfAnalyzer:
                 "connected_components": 0,
                 "cycles": [],
                 "multiple_parent_frames": {},
+                "timing_analysis_complete": timing_complete,
                 "edges": [],
             }, issues
 
@@ -309,7 +311,12 @@ class TfAnalyzer:
                     ))
                 median_period = summary["median_period_ms"]
                 maximum_gap = summary["max_gap_ms"]
-                if median_period and maximum_gap and maximum_gap > median_period * gap_factor:
+                if (
+                    timing_complete
+                    and median_period
+                    and maximum_gap
+                    and maximum_gap > median_period * gap_factor
+                ):
                     issues.append(Issue(
                         issue_id=f"TF_GAP:{edge_name}",
                         severity="warning",
@@ -383,6 +390,7 @@ class TfAnalyzer:
                 for child, parents in sorted(self._parents_by_child.items())
                 if len(parents) > 1
             },
+            "timing_analysis_complete": timing_complete,
             "edges": edge_summaries,
         }, issues
 

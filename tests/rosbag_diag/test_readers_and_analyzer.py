@@ -365,6 +365,112 @@ class DiagnosticJourneyTests(unittest.TestCase):
         self.assertEqual(report.topics[0]["time_basis"], "header")
         self.assertEqual(report.summary["deep_analysis_coverage_percent"], 100.0)
 
+    def test_simulated_clock_epoch_is_not_reported_as_transport_latency(self) -> None:
+        storage_start = 1_700_000_000_000_000_000
+        storage_times = [storage_start + index * 10_000_000 for index in range(20)]
+        records: list[DecodedRecord] = []
+        for index, storage_time in enumerate(storage_times):
+            header_time = 10_000_000_000 + index * 10_000_000
+            message = Namespace(
+                header=Namespace(stamp=Namespace(
+                    sec=header_time // 1_000_000_000,
+                    nanosec=header_time % 1_000_000_000,
+                )),
+                linear_acceleration=Namespace(x=index * 0.001, y=0.0, z=9.81),
+                angular_velocity=Namespace(x=0.0, y=0.0, z=0.0),
+                orientation=Namespace(x=0.0, y=0.0, z=0.0, w=1.0),
+            )
+            records.append(DecodedRecord("/imu", "sensor_msgs/msg/Imu", storage_time, message))
+
+        class FakeSource:
+            decode_warnings: list[str] = []
+            info = BagInformation(
+                path=Path("/tmp/fake-sim-bag"), ros_version=2, storage="rosbag1",
+                reader="test reader",
+                topics={
+                    "/clock": TopicDefinition(
+                        "/clock", "rosgraph_msgs/msg/Clock", "cdr", "", len(storage_times)
+                    ),
+                    "/imu": TopicDefinition(
+                        "/imu", "sensor_msgs/msg/Imu", "cdr", "", len(storage_times)
+                    ),
+                },
+                message_count=len(storage_times) * 2,
+                start_time_ns=storage_times[0],
+                end_time_ns=storage_times[-1],
+                duration_ns=storage_times[-1] - storage_times[0],
+            )
+
+            @staticmethod
+            def iter_timestamps():
+                for value in storage_times:
+                    yield "/clock", value
+                    yield "/imu", value
+
+            @staticmethod
+            def iter_decoded_samples(_maximum_per_topic: int):
+                yield from records
+
+        with patch("rosbag_diag.analyzers.open_bag", return_value=FakeSource()):
+            report = diagnose_bag("ignored", DiagnosticOptions())
+
+        identifiers = {issue.issue_id for issue in report.issues}
+        clock_issue = next(
+            issue for issue in report.issues
+            if issue.issue_id == "HEADER_STORAGE_CLOCK_DOMAIN"
+        )
+        self.assertNotIn("HEADER_STORAGE_LAG:/imu", identifiers)
+        self.assertEqual(clock_issue.severity, "notice")
+        self.assertIn("/clock", clock_issue.evidence)
+        self.assertEqual(
+            next(topic for topic in report.topics if topic["name"] == "/imu")
+            ["header_timing"]["storage_clock_relation"],
+            "separate_epoch",
+        )
+        self.assertGreater(report.summary["score"], 0)
+        self.assertEqual(report.summary["critical_count"], 0)
+
+    def test_event_static_and_tf_topics_avoid_periodic_stream_false_positives(self) -> None:
+        start = 1_700_000_000_000_000_000
+        event_times = [start + index * 100_000_000 for index in range(10)]
+        event_times.extend([start + 10_000_000_000, start + 25_000_000_000])
+        tf_times = [
+            start + offset * 1_000_000
+            for offset in (0, 10, 20, 30, 500, 510, 520, 1000, 1010, 1020, 1500, 1510)
+        ]
+        bag = create_sqlite_bag(
+            self.root / "event_topics",
+            {
+                "/plan": ("nav_msgs/msg/Path", event_times, ""),
+                "/map": ("nav_msgs/msg/OccupancyGrid", [start], ""),
+                "/tf": ("tf2_msgs/msg/TFMessage", tf_times, ""),
+            },
+        )
+
+        report = diagnose_bag(bag, DiagnosticOptions(deep_analysis=False))
+        identifiers = {issue.issue_id for issue in report.issues}
+
+        self.assertNotIn("TOPIC_GAPS:/plan", identifiers)
+        self.assertNotIn("TOPIC_JITTER:/plan", identifiers)
+        self.assertNotIn("TOPIC_SINGLE_MESSAGE:/map", identifiers)
+        self.assertNotIn("TOPIC_GAPS:/tf", identifiers)
+        self.assertNotIn("TOPIC_JITTER:/tf", identifiers)
+
+    def test_frequency_baseline_allows_small_timestamp_rounding_error(self) -> None:
+        start = 1_700_000_000_000_000_000
+        timestamps = [start + index * 200_001_000 for index in range(101)]
+        bag = create_sqlite_bag(
+            self.root / "scan_rounding",
+            {"/scan": ("sensor_msgs/msg/LaserScan", timestamps, "")},
+        )
+
+        report = diagnose_bag(bag, DiagnosticOptions(deep_analysis=False))
+
+        self.assertNotIn(
+            "TOPIC_RATE_LOW:/scan",
+            {issue.issue_id for issue in report.issues},
+        )
+
     def test_invalid_thresholds_are_rejected(self) -> None:
         bag = create_sqlite_bag(
             self.root / "thresholds",

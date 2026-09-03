@@ -161,6 +161,88 @@ QString preferred_report_directory(const QString & bag_path)
   return QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
 }
 
+void append_unique(QStringList * values, const QString & value)
+{
+  if (!value.isEmpty() && !values->contains(value)) values->append(value);
+}
+
+QString desktop_default_browser()
+{
+  const QString xdg_settings = QStandardPaths::findExecutable(QStringLiteral("xdg-settings"));
+  if (xdg_settings.isEmpty()) return QString();
+  QProcess process;
+  process.start(xdg_settings, {
+    QStringLiteral("get"), QStringLiteral("default-web-browser")});
+  if (!process.waitForFinished(1500) || process.exitCode() != 0) return QString();
+  return QString::fromUtf8(process.readAllStandardOutput()).trimmed().toLower();
+}
+
+bool launch_html_report(
+  const QString & path,
+  QString * used_opener,
+  QString * error)
+{
+  const QFileInfo report(path);
+  if (!report.isFile()) {
+    if (error) *error = QStringLiteral("找不到 HTML 报告：%1").arg(path);
+    return false;
+  }
+
+  QStringList candidates;
+  const QString configured = qEnvironmentVariable("PCD_MEASURE_HTML_OPENER").trimmed();
+  if (!configured.isEmpty()) append_unique(&candidates, configured);
+
+  const QString desktop_id = desktop_default_browser();
+  if (desktop_id.contains(QStringLiteral("edge"))) {
+    append_unique(&candidates, QStringLiteral("microsoft-edge"));
+    append_unique(&candidates, QStringLiteral("microsoft-edge-stable"));
+  } else if (desktop_id.contains(QStringLiteral("chrome"))) {
+    append_unique(&candidates, QStringLiteral("google-chrome"));
+    append_unique(&candidates, QStringLiteral("google-chrome-stable"));
+  } else if (desktop_id.contains(QStringLiteral("firefox"))) {
+    append_unique(&candidates, QStringLiteral("firefox"));
+  } else if (desktop_id.contains(QStringLiteral("chromium"))) {
+    append_unique(&candidates, QStringLiteral("chromium"));
+    append_unique(&candidates, QStringLiteral("chromium-browser"));
+  }
+  for (const QString & browser : {
+      QStringLiteral("microsoft-edge"),
+      QStringLiteral("microsoft-edge-stable"),
+      QStringLiteral("google-chrome"),
+      QStringLiteral("google-chrome-stable"),
+      QStringLiteral("firefox"),
+      QStringLiteral("chromium"),
+      QStringLiteral("chromium-browser")}) {
+    append_unique(&candidates, browser);
+  }
+
+  const QString report_url = QUrl::fromLocalFile(report.absoluteFilePath()).toString();
+  for (const QString & candidate : candidates) {
+    QString executable;
+    const QFileInfo candidate_info(candidate);
+    if (candidate_info.isAbsolute() && candidate_info.isExecutable()) {
+      executable = candidate_info.absoluteFilePath();
+    } else {
+      executable = QStandardPaths::findExecutable(candidate);
+    }
+    if (executable.isEmpty()) continue;
+    if (QProcess::startDetached(executable, {report_url})) {
+      if (used_opener) *used_opener = executable;
+      return true;
+    }
+  }
+
+  if (QDesktopServices::openUrl(QUrl::fromLocalFile(report.absoluteFilePath()))) {
+    if (used_opener) *used_opener = QStringLiteral("系统默认应用");
+    return true;
+  }
+  if (error) {
+    *error = QStringLiteral(
+      "系统未能启动网页浏览器。可先点击“导出 HTML 报告”，再从文件管理器打开。");
+  }
+  return false;
+}
+
 }
 
 RosbagDiagnosticDialog::RosbagDiagnosticDialog(
@@ -598,6 +680,7 @@ void RosbagDiagnosticDialog::build_interface()
   export_json_button_ = new QPushButton(QStringLiteral("导出 JSON"), this);
   export_html_button_ = new QPushButton(QStringLiteral("导出 HTML 报告"), this);
   open_report_button_ = new QPushButton(QStringLiteral("打开完整报告"), this);
+  open_report_button_->setObjectName(QStringLiteral("openRosbagReportButton"));
   open_report_button_->setProperty("role", "primary");
   footer_layout->addWidget(diagnostic_progress_, 1);
   footer_layout->addWidget(export_json_button_);
@@ -1252,8 +1335,16 @@ void RosbagDiagnosticDialog::export_html_report()
 
 void RosbagDiagnosticDialog::open_html_report()
 {
-  if (!QFileInfo::exists(current_html_path_)) return;
-  QDesktopServices::openUrl(QUrl::fromLocalFile(current_html_path_));
+  QString opener;
+  QString error;
+  if (!launch_html_report(current_html_path_, &opener, &error)) {
+    append_log(error, QStringLiteral("ERR"));
+    QMessageBox::warning(this, QStringLiteral("无法打开报告"), error);
+    return;
+  }
+  append_log(
+    QStringLiteral("已用 %1 打开完整报告：%2").arg(opener, current_html_path_),
+    QStringLiteral("REPORT"));
 }
 
 bool RosbagDiagnosticDialog::copy_report_atomically(

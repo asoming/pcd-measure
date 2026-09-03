@@ -126,6 +126,28 @@ class TfAnalyzerTests(unittest.TestCase):
         self.assertTrue(any(value.startswith("TF_TIME_BACKWARDS") for value in identifiers))
         self.assertTrue(any(value.startswith("TF_QUATERNION_NORM") for value in identifiers))
 
+    def test_sampled_tf_stream_does_not_claim_a_gap(self) -> None:
+        analyzer = TfAnalyzer()
+        for index, timestamp in enumerate(
+            [100_000_000, 200_000_000, 300_000_000, 2_000_000_000]
+        ):
+            analyzer.consume(
+                "/tf",
+                Namespace(transforms=[transform("map", "base", timestamp, index * 0.01)]),
+                timestamp,
+            )
+
+        result, issues = analyzer.finish(
+            translation_jump_m=0.5,
+            rotation_jump_deg=30.0,
+            maximum_speed_mps=10.0,
+            gap_factor=3.0,
+            timing_complete=False,
+        )
+
+        self.assertFalse(result["timing_analysis_complete"])
+        self.assertFalse(any(issue.issue_id.startswith("TF_GAP") for issue in issues))
+
 
 class SensorAnalyzerTests(unittest.TestCase):
     def test_imu_invalid_quaternion_and_saturation_are_reported(self) -> None:
@@ -171,6 +193,21 @@ class SensorAnalyzerTests(unittest.TestCase):
         self.assertIn("SENSOR_EMPTY_OR_MALFORMED:/camera/image", identifiers)
         self.assertIn("SENSOR_FROZEN:/camera/image", identifiers)
         self.assertTrue(any(value.startswith("HARDWARE_DIAGNOSTIC:camera") for value in identifiers))
+
+    def test_stationary_odometry_is_a_notice_instead_of_hardware_failure(self) -> None:
+        analyzer = SensorAnalyzer()
+        odometry = Namespace(
+            pose=Namespace(pose=Namespace(position=Namespace(x=0.0, y=0.0, z=0.0)))
+        )
+        for _ in range(15):
+            analyzer.consume("/odom", "nav_msgs/msg/Odometry", odometry)
+
+        _, issues = analyzer.finish()
+        frozen = next(issue for issue in issues if issue.issue_id == "SENSOR_FROZEN:/odom")
+
+        self.assertEqual(frozen.severity, "notice")
+        self.assertEqual(frozen.confidence, "low")
+        self.assertIn("机器人静止", frozen.impact)
 
     def test_lidar_livox_cloud_odometry_gnss_and_battery_faults(self) -> None:
         analyzer = SensorAnalyzer()
