@@ -35,7 +35,6 @@
 - [精度、性能与数据安全](#精度性能与数据安全)
 - [构建与测试](#构建与测试)
 - [常见问题](#常见问题)
-- [项目结构与发布说明](#项目结构与发布说明)
 
 ## 关于
 
@@ -652,35 +651,3 @@ PCD_MEASURE_BUILD_JOBS=1 ./build.sh
 ### 回放后节点收不到话题
 
 使用 `ros2 topic info -v` 核对订阅端的 reliability 和 durability，重点检查 `/tf_static`；同时确认回放工作空间、`ROS_DOMAIN_ID`、仿真时间和自定义消息类型一致。
-
-## 项目结构与发布说明
-
-```text
-pcd-measure/
-├── assets/                  # 应用图标
-├── docs/                    # 功能矩阵、测试计划、测试结果和 README 截图
-│   └── images/
-├── scripts/                 # 验收、ROS bag 安装、诊断和回放脚本
-├── src/                     # Qt/PCL/VTK 应用与算法源码
-├── tests/                   # 单元、GUI、真实工作流和故障注入测试
-├── tools/                   # ROS bag Python 离线诊断器
-├── CMakeLists.txt
-├── build.sh
-├── run.sh
-├── install_desktop.sh
-├── requirements-rosbag.txt
-└── PCD 点云测量工具.desktop
-```
-
-上传 GitHub 时应提交源码、测试、脚本、文档、图标和根目录配置；不要提交以下本地数据：
-
-- `build/` 和 `.rosbag-venv/`。
-- 个人 PCD、PLY、BIN、OLX、ROS bag 或地图目录。
-- `.pcdmeasure` 工程、导出报告、日志和崩溃文件。
-- 包含个人路径、设备信息或现场数据的临时截图。
-
-这些常见内容已由 `.gitignore` 排除；`docs/images/` 中的三张公开演示截图应提交，否则 GitHub README 无法显示预览。
-
-仓库当前未包含 `LICENSE` 文件。正式公开并允许他人复制、修改或分发前，请根据你的发布意图添加合适的开源许可证。
-
-提交问题时，建议附上系统版本、程序版本、复现步骤、终端日志，以及脱敏后的 PCD 头部或 bag metadata。不要直接上传含敏感现场信息的原始数据。
