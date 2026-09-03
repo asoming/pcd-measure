@@ -208,7 +208,8 @@ class OlxRecordTest(unittest.TestCase):
                 for index in range(5)
             ]
             recorder = olx_record.SessionRecorder(
-                root, preview_file=preview, preview_points=2, preview_interval=0.0
+                root, preview_file=preview, preview_points=2,
+                preview_interval=0.0, preview_mode="frame",
             )
             recorder.write_cloud(cloud_message(points))
             status = recorder.status()
@@ -223,7 +224,122 @@ class OlxRecordTest(unittest.TestCase):
             self.assertEqual(struct.unpack_from("<fffBBBB", payload, 40),
                              (3.0, 4.0, 5.0, 13, 23, 33, 255))
             self.assertEqual(status["preview_points"], 2)
+            self.assertEqual(status["preview_mode"], "frame")
+            self.assertEqual(status["preview_source_points"], 5)
             self.assertFalse(list(preview.parent.glob("*.tmp-*")))
+
+    def test_cumulative_preview_grows_and_deduplicates_voxels(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = pathlib.Path(temporary)
+            preview = parent / "runtime" / "live-preview.bin"
+            recorder = olx_record.SessionRecorder(
+                parent / "session", preview_file=preview, preview_points=20,
+                preview_interval=0.0, preview_mode="cumulative",
+            )
+            recorder.write_cloud(cloud_message([
+                (0.0, 0.0, 0.0, 10, 20, 30),
+                (1.0, 0.0, 0.0, 40, 50, 60),
+            ]))
+            recorder.write_cloud(cloud_message([
+                (0.005, 0.0, 0.0, 70, 80, 90),
+                (2.0, 0.0, 0.0, 100, 110, 120),
+            ]))
+            status = recorder.status()
+            recorder.close()
+
+            payload = preview.read_bytes()
+            self.assertEqual(struct.unpack_from("<8sIdI", payload)[:3],
+                             (b"PCPV0001", 1, 12.25))
+            self.assertEqual(struct.unpack_from("<8sIdI", payload)[3], 3)
+            records = [struct.unpack_from("<fffBBBB", payload, 24 + index * 16)
+                       for index in range(3)]
+            self.assertEqual({round(record[0], 3) for record in records},
+                             {0.005, 1.0, 2.0})
+            updated = next(record for record in records if record[0] < 0.1)
+            self.assertEqual(updated[3:], (70, 80, 90, 255))
+            self.assertEqual(status["preview_points"], 3)
+            self.assertEqual(status["preview_source_points"], 2)
+            self.assertEqual(status["preview_voxel_size_m"], 0.02)
+            self.assertEqual(recorder.points, 4)
+
+    def test_cumulative_preview_is_bounded_and_new_session_starts_empty(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = pathlib.Path(temporary)
+            preview = parent / "runtime" / "live-preview.bin"
+            dense_points = [
+                (float(index % 20) * 0.1, float(index // 20) * 0.1, 0.0,
+                 index % 255, 80, 160)
+                for index in range(200)
+            ]
+            first = olx_record.SessionRecorder(
+                parent / "first", preview_file=preview, preview_points=25,
+                preview_interval=0.0, preview_mode="cumulative",
+            )
+            first.write_cloud(cloud_message(dense_points))
+            first.write_cloud(cloud_message([
+                (100.0, 100.0, 1.0, 250, 251, 252),
+            ]))
+            first_status = first.status()
+            first.close()
+
+            self.assertLessEqual(first_status["preview_points"], 25)
+            self.assertGreater(first_status["preview_voxel_size_m"], 0.02)
+            first_payload = preview.read_bytes()
+            first_count = struct.unpack_from("<8sIdI", first_payload)[3]
+            first_records = [
+                struct.unpack_from("<fffBBBB", first_payload, 24 + index * 16)
+                for index in range(first_count)
+            ]
+            self.assertTrue(any(record[0] == 100.0 and record[1] == 100.0
+                                for record in first_records))
+
+            second = olx_record.SessionRecorder(
+                parent / "second", preview_file=preview, preview_points=25,
+                preview_interval=0.0, preview_mode="cumulative",
+            )
+            second.write_cloud(cloud_message([
+                (9.0, 8.0, 7.0, 1, 2, 3),
+            ]))
+            second.close()
+
+            payload = preview.read_bytes()
+            self.assertEqual(struct.unpack_from("<8sIdI", payload),
+                             (b"PCPV0001", 0, 12.25, 1))
+            self.assertEqual(struct.unpack_from("<fffBBBB", payload, 24),
+                             (9.0, 8.0, 7.0, 1, 2, 3, 255))
+
+    def test_preview_mode_is_validated(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(ValueError, "preview mode"):
+                olx_record.SessionRecorder(
+                    pathlib.Path(temporary) / "bad-mode", preview_mode="unknown"
+                )
+            with self.assertRaisesRegex(ValueError, "interval"):
+                olx_record.SessionRecorder(
+                    pathlib.Path(temporary) / "bad-interval",
+                    preview_interval=math.nan,
+                )
+
+    def test_close_publishes_the_last_accumulated_preview(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = pathlib.Path(temporary)
+            preview = parent / "live-preview.bin"
+            recorder = olx_record.SessionRecorder(
+                parent / "session", preview_file=preview,
+                preview_points=20, preview_interval=60.0,
+            )
+            recorder.write_cloud(cloud_message([
+                (0.0, 0.0, 0.0, 1, 2, 3),
+            ]))
+            recorder.write_cloud(cloud_message([
+                (1.0, 0.0, 0.0, 4, 5, 6),
+            ]))
+            self.assertEqual(struct.unpack_from("<8sIdI", preview.read_bytes())[3], 1)
+
+            recorder.close()
+
+            self.assertEqual(struct.unpack_from("<8sIdI", preview.read_bytes()),
+                             (b"PCPV0001", 1, 12.25, 2))
 
     def test_images_are_indexed_and_empty_payload_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include <QByteArray>
@@ -54,6 +55,7 @@ private slots:
 private:
   QString project_directory() const;
   QString selected_cloud_topic() const;
+  QString selected_preview_mode() const;
   void append_log(const QString & text);
   void update_recording_controls();
   bool usb_device_present() const;
@@ -62,6 +64,7 @@ private:
   QLineEdit * workspace_edit_ = nullptr;
   QLineEdit * output_edit_ = nullptr;
   QComboBox * scan_mode_combo_ = nullptr;
+  QComboBox * preview_mode_combo_ = nullptr;
   QLineEdit * pose_topic_edit_ = nullptr;
   QLineEdit * image_topic_edit_ = nullptr;
   QCheckBox * pose_check_ = nullptr;
@@ -78,6 +81,7 @@ private:
   QTextEdit * log_edit_ = nullptr;
   QDialogButtonBox * close_buttons_ = nullptr;
   LiveCloudPreviewWidget * live_preview_ = nullptr;
+  QLabel * preview_mark_label_ = nullptr;
   QLabel * preview_status_label_ = nullptr;
   QTimer * preview_timer_ = nullptr;
 
@@ -92,6 +96,9 @@ private:
   QTemporaryDir preview_directory_;
   QElapsedTimer preview_rate_timer_;
   std::uint32_t last_preview_frame_id_ = 0;
+  std::size_t last_preview_point_count_ = 0;
+  std::uint64_t last_preview_source_points_ = 0;
+  double preview_voxel_size_m_ = 0.0;
   bool have_preview_frame_ = false;
   double preview_rate_hz_ = 0.0;
   bool embedded_ = false;

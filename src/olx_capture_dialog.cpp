@@ -56,6 +56,12 @@ public:
     setToolTip(QStringLiteral("左键拖动旋转，滚轮缩放，双击恢复视角"));
   }
 
+  void set_cumulative(bool cumulative)
+  {
+    cumulative_ = cumulative;
+    update();
+  }
+
   bool load_file(
     const QString & path,
     std::uint32_t * frame_id,
@@ -140,14 +146,16 @@ protected:
       title_font.setPointSize(13);
       painter.setFont(title_font);
       painter.drawText(rect().adjusted(20, 0, -20, -18), Qt::AlignCenter,
-        QStringLiteral("LIVE POINT CLOUD · 等待点云帧"));
+        cumulative_ ? QStringLiteral("ACCUMULATED MAP · 等待第一帧") :
+        QStringLiteral("CURRENT FRAME · 等待点云帧"));
       QFont hint_font = painter.font();
       hint_font.setBold(false);
       hint_font.setPointSize(10);
       painter.setFont(hint_font);
       painter.setPen(QColor(QStringLiteral("#587583")));
       painter.drawText(rect().adjusted(20, 38, -20, 0), Qt::AlignCenter,
-        QStringLiteral("启动驱动并开始录制后，这里会显示实时点云"));
+        cumulative_ ? QStringLiteral("开始扫描后，新采到的表面会保留并逐步成形") :
+        QStringLiteral("开始扫描后，这里显示传感器当前帧"));
       return;
     }
 
@@ -241,12 +249,14 @@ protected:
     overlay_font.setPointSize(9);
     painter.setFont(overlay_font);
     painter.drawText(QRect(14, 11, width() - 28, 20), Qt::AlignLeft | Qt::AlignVCenter,
-      QStringLiteral("LIVE POINT CLOUD · FRAME %1 · %2 PTS")
+      (cumulative_ ? QStringLiteral("ACCUMULATED MAP · FRAME %1 · %2 MAP PTS") :
+      QStringLiteral("CURRENT FRAME · FRAME %1 · %2 PTS"))
         .arg(frame_id_).arg(points_.size()));
     painter.setPen(QColor(QStringLiteral("#6E8995")));
     painter.drawText(QRect(14, height() - 27, width() - 28, 18),
       Qt::AlignLeft | Qt::AlignVCenter,
-      QStringLiteral("左键旋转 · 滚轮缩放 · 双击复位"));
+      cumulative_ ? QStringLiteral("空间去重预览 · 左键旋转 · 滚轮缩放 · 双击复位") :
+      QStringLiteral("当前帧预览 · 左键旋转 · 滚轮缩放 · 双击复位"));
   }
 
   void mousePressEvent(QMouseEvent * event) override
@@ -337,6 +347,7 @@ private:
   double zoom_ = 1.0;
   bool have_frame_ = false;
   bool dragging_ = false;
+  bool cumulative_ = true;
 };
 
 namespace
@@ -405,7 +416,7 @@ OlxCaptureDialog::OlxCaptureDialog(QWidget * parent, bool embedded)
   auto * title = new QLabel(QStringLiteral("实时点云采集"), hero);
   title->setObjectName(QStringLiteral("captureTitle"));
   auto * subtitle = new QLabel(QStringLiteral(
-    "查看 ROS2 实时点云并录制 OLX；完整数据写盘，预览独立限量。"), hero);
+    "看着场景随扫描逐帧成形，同时把完整 ROS2 点云安全录制为 OLX。"), hero);
   subtitle->setObjectName(QStringLiteral("captureSubtitle"));
   hero_text->addWidget(console_mark);
   hero_text->addWidget(title);
@@ -493,6 +504,15 @@ OlxCaptureDialog::OlxCaptureDialog(QWidget * parent, bool embedded)
   scan_mode_combo_->addItem(QStringLiteral("渲染彩色点云"), QStringLiteral("/odin1/cloud_render"));
   scan_mode_combo_->addItem(QStringLiteral("DTOF 原始强度点云"), QStringLiteral("/odin1/cloud_raw"));
   source_layout->addRow(QStringLiteral("扫描模式："), scan_mode_combo_);
+  preview_mode_combo_ = new QComboBox;
+  preview_mode_combo_->setObjectName(QStringLiteral("olxPreviewMode"));
+  preview_mode_combo_->addItem(
+    QStringLiteral("累计建图（逐帧叠加）"), QStringLiteral("cumulative"));
+  preview_mode_combo_->addItem(
+    QStringLiteral("当前帧（不叠加）"), QStringLiteral("frame"));
+  preview_mode_combo_->setToolTip(QStringLiteral(
+    "SLAM 点云适合累计建图；原始 DTOF 在设备移动时应使用当前帧。"));
+  source_layout->addRow(QStringLiteral("实时画面："), preview_mode_combo_);
   pose_topic_edit_ = new QLineEdit(QStringLiteral("/odin1/odometry"));
   image_topic_edit_ = new QLineEdit(QStringLiteral("/odin1/image/compressed"));
   pose_topic_edit_->setObjectName(QStringLiteral("olxPoseTopic"));
@@ -517,7 +537,7 @@ OlxCaptureDialog::OlxCaptureDialog(QWidget * parent, bool embedded)
 
   auto * actions = new QGridLayout;
   driver_button_ = new QPushButton(QStringLiteral("启动设备驱动"));
-  record_button_ = new QPushButton(QStringLiteral("开始录制"));
+  record_button_ = new QPushButton(QStringLiteral("开始扫描并录制"));
   record_button_->setProperty("role", "primary");
   stop_button_ = new QPushButton(QStringLiteral("停止并完成"));
   stop_button_->setEnabled(false);
@@ -546,7 +566,7 @@ OlxCaptureDialog::OlxCaptureDialog(QWidget * parent, bool embedded)
   record_layout->addWidget(counter_label_);
   layout->addWidget(record_group);
   auto * safety_note = new QLabel(QStringLiteral(
-    "完整点云直接写入 OLX；右侧画面仅抽样预览，不改变点数、颜色或文件精度。"), control_surface);
+    "累计画面使用空间去重并限制显示点数；完整点云仍逐帧写入 OLX，不改变颜色或文件精度。"), control_surface);
   safety_note->setWordWrap(true);
   safety_note->setStyleSheet(QStringLiteral(
     "color:#829EAA; background:#0B202C; padding:8px; border-left:3px solid #25D0C8;"));
@@ -561,12 +581,12 @@ OlxCaptureDialog::OlxCaptureDialog(QWidget * parent, bool embedded)
   preview_layout->setContentsMargins(9, 9, 9, 9);
   preview_layout->setSpacing(7);
   auto * preview_header = new QHBoxLayout;
-  auto * preview_mark = new QLabel(QStringLiteral("LIVE VIEW // DOWNSAMPLED DISPLAY"), preview_panel);
-  preview_mark->setObjectName(QStringLiteral("captureSectionMark"));
-  preview_status_label_ = new QLabel(QStringLiteral("WAITING · 0 PTS"), preview_panel);
+  preview_mark_label_ = new QLabel(QStringLiteral("MAP BUILD // SPATIAL PREVIEW"), preview_panel);
+  preview_mark_label_->setObjectName(QStringLiteral("captureSectionMark"));
+  preview_status_label_ = new QLabel(QStringLiteral("WAITING · MAP 0 PTS"), preview_panel);
   preview_status_label_->setObjectName(QStringLiteral("olxPreviewStatus"));
   preview_status_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-  preview_header->addWidget(preview_mark);
+  preview_header->addWidget(preview_mark_label_);
   preview_header->addStretch(1);
   preview_header->addWidget(preview_status_label_);
   preview_layout->addLayout(preview_header);
@@ -625,8 +645,24 @@ OlxCaptureDialog::OlxCaptureDialog(QWidget * parent, bool embedded)
   });
   connect(&recorder_process_, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
     this, &OlxCaptureDialog::recorder_finished);
+  connect(preview_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    this, [this](int) {
+      const bool cumulative = selected_preview_mode() == QStringLiteral("cumulative");
+      live_preview_->set_cumulative(cumulative);
+      preview_mark_label_->setText(cumulative ? QStringLiteral("MAP BUILD // SPATIAL PREVIEW") :
+        QStringLiteral("LIVE VIEW // CURRENT FRAME"));
+      if (recorder_process_.state() == QProcess::NotRunning && !have_preview_frame_) {
+        preview_status_label_->setText(cumulative ? QStringLiteral("WAITING · MAP 0 PTS") :
+          QStringLiteral("WAITING · FRAME 0 PTS"));
+      }
+    });
   connect(scan_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-    this, [this](int) {refresh_status();});
+    this, [this](int index) {
+      if (recorder_process_.state() == QProcess::NotRunning) {
+        preview_mode_combo_->setCurrentIndex(index == 2 ? 1 : 0);
+      }
+      refresh_status();
+    });
   connect(workspace_edit_, &QLineEdit::editingFinished, this, &OlxCaptureDialog::refresh_status);
   preview_timer_ = new QTimer(this);
   preview_timer_->setInterval(150);
@@ -671,6 +707,11 @@ QString OlxCaptureDialog::project_directory() const
 QString OlxCaptureDialog::selected_cloud_topic() const
 {
   return scan_mode_combo_->currentData().toString();
+}
+
+QString OlxCaptureDialog::selected_preview_mode() const
+{
+  return preview_mode_combo_->currentData().toString();
 }
 
 void OlxCaptureDialog::browse_workspace()
@@ -800,10 +841,16 @@ void OlxCaptureDialog::start_recording()
     QFile::remove(preview_file_path_);
     arguments << QStringLiteral("--preview-file") << preview_file_path_
       << QStringLiteral("--preview-points") << QStringLiteral("60000")
-      << QStringLiteral("--preview-interval") << QStringLiteral("0.20");
+      << QStringLiteral("--preview-interval") << QStringLiteral("0.20")
+      << QStringLiteral("--preview-mode") << selected_preview_mode();
+    live_preview_->set_cumulative(selected_preview_mode() == QStringLiteral("cumulative"));
     live_preview_->clear_preview();
-    preview_status_label_->setText(QStringLiteral("STARTING · 0 PTS"));
+    preview_status_label_->setText(selected_preview_mode() == QStringLiteral("cumulative") ?
+      QStringLiteral("STARTING · MAP 0 PTS") : QStringLiteral("STARTING · FRAME 0 PTS"));
     have_preview_frame_ = false;
+    last_preview_point_count_ = 0;
+    last_preview_source_points_ = 0;
+    preview_voxel_size_m_ = 0.0;
     preview_rate_hz_ = 0.0;
     preview_rate_timer_.restart();
   }
@@ -822,11 +869,14 @@ void OlxCaptureDialog::start_recording()
     update_recording_controls();
     return;
   }
-  recording_status_label_->setText(QStringLiteral("● RECORDING · %1").arg(selected_cloud_topic()));
+  recording_status_label_->setText(QStringLiteral("● MAPPING + RECORDING · %1")
+    .arg(selected_cloud_topic()));
   recording_status_label_->setStyleSheet(QStringLiteral(
     "color:#FFD38A; background:#302817; border:1px solid #8A6933; padding:8px; "
     "font-family:'DejaVu Sans Mono'; font-weight:700;"));
-  append_log(QStringLiteral("开始录制会话 %1").arg(session));
+  append_log(selected_preview_mode() == QStringLiteral("cumulative") ?
+    QStringLiteral("开始扫描会话 %1；累计地图将从空画面逐帧增长。").arg(session) :
+    QStringLiteral("开始录制会话 %1；实时画面显示当前帧。").arg(session));
   if (!preview_file_path_.isEmpty()) preview_timer_->start();
   update_recording_controls();
 }
@@ -860,18 +910,32 @@ void OlxCaptureDialog::consume_recorder_output()
       const QJsonDocument document = QJsonDocument::fromJson(line.mid(7));
       const QJsonObject status = document.object();
       last_olx_path_ = status.value(QStringLiteral("olx")).toString(last_olx_path_);
+      last_preview_source_points_ = status.value(
+        QStringLiteral("preview_source_points")).toVariant().toULongLong();
+      preview_voxel_size_m_ = status.value(QStringLiteral("preview_voxel_size_m")).toDouble();
       const QString preview_error = status.value(QStringLiteral("preview_error")).toString();
       if (!preview_error.isEmpty() && preview_error != last_preview_error_) {
         last_preview_error_ = preview_error;
         append_log(QStringLiteral("实时预览已停止，但完整录制继续：%1").arg(preview_error));
         preview_status_label_->setText(QStringLiteral("PREVIEW ERROR · 录制继续"));
       }
-      counter_label_->setText(QStringLiteral("帧 %1 · 点 %2 · %5 s\n位姿 %3 · 图像 %4")
+      const qulonglong map_points = status.value(
+        QStringLiteral("preview_points")).toVariant().toULongLong();
+      const bool cumulative = status.value(QStringLiteral("preview_mode")).toString(
+        selected_preview_mode()) == QStringLiteral("cumulative");
+      const QString preview_detail = cumulative ?
+        QStringLiteral("地图 %1 · 帧点 %2 · %3 cm")
+          .arg(map_points)
+          .arg(static_cast<qulonglong>(last_preview_source_points_))
+          .arg(preview_voxel_size_m_ * 100.0, 0, 'f', 1) :
+        QStringLiteral("当前帧预览 %1 点").arg(map_points);
+      counter_label_->setText(QStringLiteral("帧 %1 · 写盘点 %2 · %5 s\n位姿 %3 · 图像 %4\n%6")
         .arg(status.value(QStringLiteral("cloud_frames")).toVariant().toULongLong())
         .arg(status.value(QStringLiteral("points")).toVariant().toULongLong())
         .arg(status.value(QStringLiteral("pose_frames")).toVariant().toULongLong())
         .arg(status.value(QStringLiteral("image_frames")).toVariant().toULongLong())
-        .arg(status.value(QStringLiteral("elapsed_seconds")).toDouble(), 0, 'f', 1));
+        .arg(status.value(QStringLiteral("elapsed_seconds")).toDouble(), 0, 'f', 1)
+        .arg(preview_detail));
       continue;
     }
     if (!line.isEmpty()) append_log(QString::fromLocal8Bit(line));
@@ -897,9 +961,13 @@ void OlxCaptureDialog::refresh_live_preview()
     }
   }
   last_preview_frame_id_ = frame_id;
+  last_preview_point_count_ = point_count;
   have_preview_frame_ = true;
   preview_rate_timer_.restart();
-  preview_status_label_->setText(QStringLiteral("LIVE · FRAME %1 · %2 PTS · %3 Hz")
+  const QString status_format = selected_preview_mode() == QStringLiteral("cumulative") ?
+    QStringLiteral("BUILDING · F%1 · MAP %2 PTS · %3 Hz") :
+    QStringLiteral("LIVE · F%1 · %2 PTS · %3 Hz");
+  preview_status_label_->setText(status_format
     .arg(frame_id)
     .arg(static_cast<qulonglong>(point_count))
     .arg(preview_rate_hz_, 0, 'f', 1));
@@ -919,8 +987,11 @@ void OlxCaptureDialog::recorder_finished(int exit_code, QProcess::ExitStatus sta
   append_log(complete ? QStringLiteral("录制完成：%1").arg(last_olx_path_) :
     QStringLiteral("录制结束（退出码 %1）；请检查点云话题和日志。").arg(exit_code));
   if (have_preview_frame_) {
-    preview_status_label_->setText(QStringLiteral("FINAL FRAME %1 · 预览已冻结")
-      .arg(last_preview_frame_id_));
+    preview_status_label_->setText(selected_preview_mode() == QStringLiteral("cumulative") ?
+      QStringLiteral("FINAL MAP · %1 PTS · F%2")
+        .arg(static_cast<qulonglong>(last_preview_point_count_)).arg(last_preview_frame_id_) :
+      QStringLiteral("FINAL FRAME · %1 PTS · F%2")
+        .arg(static_cast<qulonglong>(last_preview_point_count_)).arg(last_preview_frame_id_));
   }
   update_recording_controls();
   if (complete && auto_open_check_->isChecked()) emit openOlxRequested(last_olx_path_);
@@ -954,6 +1025,7 @@ void OlxCaptureDialog::update_recording_controls()
   workspace_edit_->setEnabled(!recording);
   output_edit_->setEnabled(!recording);
   scan_mode_combo_->setEnabled(!recording);
+  preview_mode_combo_->setEnabled(!recording);
   pose_topic_edit_->setEnabled(!recording);
   image_topic_edit_->setEnabled(!recording);
   pose_check_->setEnabled(!recording);

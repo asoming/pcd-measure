@@ -241,34 +241,43 @@ def encode_pose_frame(message: Any, frame_id: int) -> bytes:
     return struct.pack("<Id7f", int(frame_id), _timestamp_seconds(message.header), *values)
 
 
-def write_preview_file(path: pathlib.Path, encoded_frame: bytes, maximum_points: int) -> int:
-    """Atomically publish a bounded XYZRGBA frame for the live UI."""
-    if maximum_points <= 0:
-        raise ValueError("preview point limit must be positive")
+def _preview_frame_parts(encoded_frame: bytes) -> tuple[int, float, int, memoryview]:
     if len(encoded_frame) < 16:
         raise ValueError("encoded cloud frame is truncated")
     frame_id, timestamp, point_count = struct.unpack_from("<IdI", encoded_frame)
     payload = memoryview(encoded_frame)[16:]
     if len(payload) != point_count * 16:
         raise ValueError("encoded cloud frame has an invalid point payload")
+    return frame_id, timestamp, point_count, payload
+
+
+def _sample_preview_payload(
+    payload: memoryview, point_count: int, maximum_points: int
+) -> tuple[bytes, int]:
+    if maximum_points <= 0:
+        raise ValueError("preview point limit must be positive")
 
     if point_count <= maximum_points:
-        sampled = bytes(payload)
-        sampled_count = point_count
-    else:
-        stride = math.ceil(point_count / maximum_points)
-        indices = range(0, point_count, stride)
-        sampled_count = min(maximum_points, math.ceil(point_count / stride))
-        sampled_buffer = bytearray(sampled_count * 16)
-        for output_index, source_index in enumerate(indices):
-            if output_index >= sampled_count:
-                break
-            source_offset = source_index * 16
-            output_offset = output_index * 16
-            sampled_buffer[output_offset : output_offset + 16] = payload[
-                source_offset : source_offset + 16
-            ]
-        sampled = bytes(sampled_buffer)
+        return bytes(payload), point_count
+
+    stride = math.ceil(point_count / maximum_points)
+    sampled_count = min(maximum_points, math.ceil(point_count / stride))
+    sampled_buffer = bytearray(sampled_count * 16)
+    for output_index, source_index in enumerate(range(0, point_count, stride)):
+        if output_index >= sampled_count:
+            break
+        source_offset = source_index * 16
+        output_offset = output_index * 16
+        sampled_buffer[output_offset : output_offset + 16] = payload[
+            source_offset : source_offset + 16
+        ]
+    return bytes(sampled_buffer), sampled_count
+
+
+def write_preview_file(path: pathlib.Path, encoded_frame: bytes, maximum_points: int) -> int:
+    """Atomically publish one bounded XYZRGBA preview snapshot."""
+    frame_id, timestamp, point_count, payload = _preview_frame_parts(encoded_frame)
+    sampled, sampled_count = _sample_preview_payload(payload, point_count, maximum_points)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
@@ -285,6 +294,89 @@ def write_preview_file(path: pathlib.Path, encoded_frame: bytes, maximum_points:
     return sampled_count
 
 
+class _PreviewAccumulator:
+    """Build a bounded spatial preview without changing the recorded frames."""
+
+    def __init__(
+        self,
+        *,
+        maximum_points: int,
+        mode: str,
+        initial_voxel_size: float = 0.02,
+    ) -> None:
+        if maximum_points <= 0:
+            raise ValueError("preview point limit must be positive")
+        if not math.isfinite(initial_voxel_size) or initial_voxel_size <= 0.0:
+            raise ValueError("preview voxel size must be finite and positive")
+        self.maximum_points = maximum_points
+        self.mode = mode
+        self.initial_voxel_size = initial_voxel_size
+        self.voxel_size = initial_voxel_size
+        self.frame_id: int | None = None
+        self.timestamp = 0.0
+        self.source_points = 0
+        self.point_count = 0
+        self._frame_payload = b""
+        self._voxels: dict[tuple[int, int, int], bytes] = {}
+
+    def add_frame(self, encoded_frame: bytes) -> None:
+        frame_id, timestamp, point_count, payload = _preview_frame_parts(encoded_frame)
+        if self.frame_id is not None and frame_id < self.frame_id:
+            self._frame_payload = b""
+            self._voxels.clear()
+            self.voxel_size = self.initial_voxel_size
+
+        self.frame_id = frame_id
+        self.timestamp = timestamp
+        self.source_points = point_count
+        if self.mode == "frame":
+            self._frame_payload, self.point_count = _sample_preview_payload(
+                payload, point_count, self.maximum_points
+            )
+            return
+
+        for offset in range(0, len(payload), 16):
+            point = bytes(payload[offset : offset + 16])
+            self._voxels[self._voxel_key(point)] = point
+        self._coarsen_to_limit()
+        self.point_count = len(self._voxels)
+
+    def snapshot(self) -> bytes:
+        if self.frame_id is None:
+            raise ValueError("preview does not contain a frame")
+        payload = (
+            self._frame_payload
+            if self.mode == "frame"
+            else b"".join(self._voxels.values())
+        )
+        return struct.pack(
+            "<IdI", self.frame_id, self.timestamp, self.point_count
+        ) + payload
+
+    def _voxel_key(self, point: bytes) -> tuple[int, int, int]:
+        x, y, z = struct.unpack_from("<fff", point)
+        return (
+            math.floor(x / self.voxel_size),
+            math.floor(y / self.voxel_size),
+            math.floor(z / self.voxel_size),
+        )
+
+    def _coarsen_to_limit(self) -> None:
+        for _ in range(32):
+            if len(self._voxels) <= self.maximum_points:
+                return
+            ratio = len(self._voxels) / self.maximum_points
+            self.voxel_size *= max(1.25, math.sqrt(ratio))
+            coarsened: dict[tuple[int, int, int], bytes] = {}
+            for point in self._voxels.values():
+                coarsened[self._voxel_key(point)] = point
+            self._voxels = coarsened
+
+        stride = math.ceil(len(self._voxels) / self.maximum_points)
+        retained = list(self._voxels.values())[::stride][: self.maximum_points]
+        self._voxels = {self._voxel_key(point): point for point in retained}
+
+
 class SessionRecorder:
     def __init__(
         self,
@@ -293,9 +385,18 @@ class SessionRecorder:
         preview_file: pathlib.Path | None = None,
         preview_points: int = 60_000,
         preview_interval: float = 0.2,
+        preview_mode: str = "cumulative",
     ) -> None:
-        if preview_points <= 0 or preview_interval < 0:
-            raise ValueError("preview points must be positive and interval must not be negative")
+        if (
+            preview_points <= 0
+            or not math.isfinite(preview_interval)
+            or preview_interval < 0
+        ):
+            raise ValueError(
+                "preview points must be positive and interval must be finite and non-negative"
+            )
+        if preview_mode not in {"cumulative", "frame"}:
+            raise ValueError(f"unsupported preview mode: {preview_mode}")
         self.root = root
         self.image_directory = root / "image"
         self.cloud_path = root / f"MT{root.name}.olx"
@@ -311,8 +412,16 @@ class SessionRecorder:
         self.preview_file = preview_file
         self.preview_points_limit = preview_points
         self.preview_interval = preview_interval
+        self.preview_mode = preview_mode
         self.preview_points = 0
+        self.preview_source_points = 0
+        self.preview_voxel_size = 0.0
         self.preview_error = ""
+        self._preview_accumulator = (
+            _PreviewAccumulator(maximum_points=preview_points, mode=preview_mode)
+            if preview_file is not None
+            else None
+        )
         self._last_preview_at = float("-inf")
         self.started_at = time.monotonic()
         root.mkdir(parents=True, exist_ok=False)
@@ -344,15 +453,32 @@ class SessionRecorder:
         self.cloud_frames += 1
         self.points += valid
         now = time.monotonic()
-        if self.preview_file is not None and now - self._last_preview_at >= self.preview_interval:
+        if self.preview_file is not None and self._preview_accumulator is not None:
             try:
-                self.preview_points = write_preview_file(
-                    self.preview_file, frame, self.preview_points_limit
+                self._preview_accumulator.add_frame(frame)
+                self.preview_points = self._preview_accumulator.point_count
+                self.preview_source_points = self._preview_accumulator.source_points
+                self.preview_voxel_size = (
+                    self._preview_accumulator.voxel_size
+                    if self.preview_mode == "cumulative"
+                    else 0.0
                 )
-                self._last_preview_at = now
-            except OSError as error:
+                if now - self._last_preview_at >= self.preview_interval:
+                    self._publish_preview(now)
+            except (OSError, ValueError) as error:
                 self.preview_error = str(error)
                 self.preview_file = None
+                self._preview_accumulator = None
+
+    def _publish_preview(self, published_at: float) -> None:
+        if self.preview_file is None or self._preview_accumulator is None:
+            return
+        self.preview_points = write_preview_file(
+            self.preview_file,
+            self._preview_accumulator.snapshot(),
+            self.preview_points_limit,
+        )
+        self._last_preview_at = published_at
 
     def write_pose(self, message: Any) -> None:
         self.pose_file.write(encode_pose_frame(message, self.pose_frames))
@@ -381,7 +507,10 @@ class SessionRecorder:
             "image_frames": self.image_frames,
             "points": self.points,
             "errors": self.errors,
+            "preview_mode": self.preview_mode,
             "preview_points": self.preview_points,
+            "preview_source_points": self.preview_source_points,
+            "preview_voxel_size_m": round(self.preview_voxel_size, 6),
             "preview_error": self.preview_error,
             "elapsed_seconds": round(time.monotonic() - self.started_at, 3),
             "final": final,
@@ -395,6 +524,17 @@ class SessionRecorder:
     def close(self) -> None:
         if self._closed:
             return
+        if (
+            self.preview_file is not None
+            and self._preview_accumulator is not None
+            and self._preview_accumulator.frame_id is not None
+        ):
+            try:
+                self._publish_preview(time.monotonic())
+            except (OSError, ValueError) as error:
+                self.preview_error = str(error)
+                self.preview_file = None
+                self._preview_accumulator = None
         self.flush()
         for output in (self.cloud_file, self.pose_file, self.image_file):
             if output is not None and not output.closed:
@@ -434,6 +574,12 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--preview-file", default="", help="atomic live-preview output path")
     parser.add_argument("--preview-points", type=int, default=60_000)
     parser.add_argument("--preview-interval", type=float, default=0.2, help="preview refresh seconds")
+    parser.add_argument(
+        "--preview-mode",
+        choices=("cumulative", "frame"),
+        default="cumulative",
+        help="accumulate a spatial map or show only the current frame",
+    )
     parser.add_argument("--duration", type=float, default=0.0, help="stop after N seconds; zero means manual")
     parser.add_argument("--max-frames", type=int, default=0, help="stop after N cloud frames; zero means manual")
     return parser.parse_args(argv)
@@ -446,6 +592,7 @@ def main(argv: list[str] | None = None) -> int:
         or args.max_frames < 0
         or args.preview_points <= 0
         or args.preview_points > 200_000
+        or not math.isfinite(args.preview_interval)
         or args.preview_interval < 0
     ):
         raise SystemExit("duration/max-frames/preview options are outside the supported range")
@@ -471,6 +618,7 @@ def main(argv: list[str] | None = None) -> int:
             preview_file=preview_file,
             preview_points=args.preview_points,
             preview_interval=args.preview_interval,
+            preview_mode=args.preview_mode,
         )
     except (OSError, ValueError) as error:
         print(f"ERROR cannot create OLX session: {error}", file=sys.stderr, flush=True)

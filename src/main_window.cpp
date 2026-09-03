@@ -1181,7 +1181,7 @@ void MainWindow::build_interface()
   rail_layout->addWidget(capture_workspace_button_);
   rail_layout->addWidget(rosbag_workspace_button_);
   rail_layout->addStretch(1);
-  auto * version = new QLabel(QStringLiteral("LOCAL WORKSPACE\nv2.2"), rail);
+  auto * version = new QLabel(QStringLiteral("LOCAL WORKSPACE\nv2.2.1"), rail);
   version->setObjectName(QStringLiteral("workspaceVersion"));
   version->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
   rail_layout->addWidget(version);

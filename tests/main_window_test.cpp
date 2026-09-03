@@ -429,6 +429,15 @@ private slots:
     QVERIFY(window_->capture_workspace_button_->isChecked());
     QVERIFY(!window_->cloud_toolbar_->isVisible());
     QVERIFY(capture_dialog->findChild<QWidget *>(QStringLiteral("olxLivePreview")));
+    auto * scan_mode = capture_dialog->findChild<QComboBox *>(QStringLiteral("olxScanMode"));
+    auto * preview_mode = capture_dialog->findChild<QComboBox *>(QStringLiteral("olxPreviewMode"));
+    QVERIFY(scan_mode);
+    QVERIFY(preview_mode);
+    QCOMPARE(preview_mode->currentData().toString(), QStringLiteral("cumulative"));
+    scan_mode->setCurrentIndex(2);
+    QCOMPARE(preview_mode->currentData().toString(), QStringLiteral("frame"));
+    scan_mode->setCurrentIndex(0);
+    QCOMPARE(preview_mode->currentData().toString(), QStringLiteral("cumulative"));
     QTest::keyClick(capture_dialog, Qt::Key_Escape);
     QVERIFY(capture_dialog->isVisible());
     QCOMPARE(window_->workspace_stack_->currentIndex(), 1);
@@ -460,8 +469,8 @@ private slots:
     QCOMPARE(preview_file.write(preview), static_cast<qint64>(preview.size()));
     preview_file.close();
     window_->capture_panel_->refresh_live_preview();
-    QVERIFY(preview_status->text().contains(QStringLiteral("FRAME 42")));
-    QVERIFY(preview_status->text().contains(QStringLiteral("6000 PTS")));
+    QVERIFY(preview_status->text().contains(QStringLiteral("F42")));
+    QVERIFY(preview_status->text().contains(QStringLiteral("MAP 6000 PTS")));
     const QString valid_preview_status = preview_status->text();
     QVERIFY(preview_file.open(QIODevice::WriteOnly | QIODevice::Truncate));
     preview_file.write("broken preview");
@@ -486,12 +495,14 @@ private slots:
       auto * counters = capture_dialog->findChild<QLabel *>(QStringLiteral("olxCounters"));
       QVERIFY(recording_status);
       QVERIFY(counters);
-      recording_status->setText(QStringLiteral("● RECORDING · /odin1/cloud_slam"));
+      recording_status->setText(QStringLiteral("● MAPPING + RECORDING · /odin1/cloud_slam"));
       recording_status->setStyleSheet(QStringLiteral(
         "color:#FFD38A; background:#302817; border:1px solid #8A6933; border-radius:5px; "
         "padding:7px 10px; font-family:'DejaVu Sans Mono'; font-weight:700;"));
-      counters->setText(QStringLiteral("帧 42 · 点 816,420 · 4.2 s\n位姿 41 · 图像 0"));
-      preview_status->setText(QStringLiteral("LIVE · FRAME 42 · 6000 PTS · 9.8 Hz"));
+      counters->setText(QStringLiteral(
+        "帧 42 · 写盘点 816,420 · 4.2 s\n位姿 41 · 图像 0\n"
+        "地图 6,000 · 帧点 1,938 · 2.0 cm"));
+      preview_status->setText(QStringLiteral("BUILDING · F42 · MAP 6,000 PTS · 9.8 Hz"));
       record_button->setEnabled(false);
       stop_button->setEnabled(true);
       QApplication::processEvents();
