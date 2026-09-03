@@ -11,6 +11,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QBuffer>
+#include <QButtonGroup>
 #include <QCheckBox>
 #include <QColor>
 #include <QColorDialog>
@@ -61,6 +62,7 @@
 #include <QSpinBox>
 #include <QStandardPaths>
 #include <QStandardItemModel>
+#include <QStackedWidget>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QStyle>
@@ -342,8 +344,15 @@ MainWindow::~MainWindow()
 void MainWindow::build_interface()
 {
   setStyleSheet(QStringLiteral(R"(
-    QMainWindow, QWidget#centralSurface, QWidget#viewerPanel { background: #07131D; font-family: 'Noto Sans CJK SC'; }
+    QMainWindow, QWidget#workspaceShell, QWidget#centralSurface, QWidget#viewerPanel { background: #07131D; font-family: 'Noto Sans CJK SC'; }
     QWidget#sidePanel { background: #0A1A25; }
+    QFrame#workspaceRail { background: #081924; border-right: 1px solid #29485C; }
+    QLabel#workspaceBrand { color: #E9F7F8; font: 800 12px 'DejaVu Sans Mono'; letter-spacing: 1px; }
+    QLabel#workspaceCaption { color: #65808D; font: 700 9px 'DejaVu Sans Mono'; letter-spacing: 0.8px; }
+    QLabel#workspaceVersion { color: #52707E; font: 700 9px 'DejaVu Sans Mono'; }
+    QToolButton#workspaceNavButton { background: transparent; color: #89A4AF; border: 1px solid transparent; border-left: 3px solid transparent; border-radius: 4px; padding: 10px 8px; font-weight: 650; text-align: left; }
+    QToolButton#workspaceNavButton:hover { background: #102735; color: #E5F2F4; border-color: #29485C; }
+    QToolButton#workspaceNavButton:checked { background: #11333F; color: #79E6E0; border-color: #31566A; border-left-color: #25D0C8; }
     QDialog { background: #0A1A25; color: #DCE9ED; font-family: 'Noto Sans CJK SC'; }
     QToolBar { background: #081924; border: none; border-bottom: 2px solid #21D4D1; spacing: 5px; padding: 7px 10px; }
     QToolBar QToolButton { background: #112938; color: #E8F2F5; border: 1px solid #29485C; border-radius: 6px; margin: 1px; padding: 7px 11px; font-weight: 600; }
@@ -396,49 +405,49 @@ void MainWindow::build_interface()
     QToolTip { background: #142E3D; color: #EAF4F6; border: 1px solid #3A657A; padding: 5px; }
   )"));
 
-  auto * toolbar = addToolBar(QStringLiteral("主工具栏"));
+  cloud_toolbar_ = addToolBar(QStringLiteral("点云命令栏"));
+  cloud_toolbar_->setObjectName(QStringLiteral("cloudCommandBar"));
+  auto * toolbar = cloud_toolbar_;
   toolbar->setMovable(false);
   toolbar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   toolbar->setIconSize(QSize(17, 17));
 
   QAction * open_action = toolbar->addAction(
-    style()->standardIcon(QStyle::SP_DialogOpenButton), QStringLiteral("打开点云"));
+    style()->standardIcon(QStyle::SP_DialogOpenButton), QStringLiteral("打开"));
   open_action->setShortcut(QKeySequence::Open);
-  open_action->setToolTip(QStringLiteral("选择 PCD、PLY、MAP BIN 或 OLX（Ctrl+O）"));
+  open_action->setToolTip(QStringLiteral("打开点云或展开文件/工程入口（Ctrl+O）"));
   connect(open_action, &QAction::triggered, this, &MainWindow::choose_file);
-  if (auto * button = qobject_cast<QToolButton *>(toolbar->widgetForAction(open_action))) {
-    button->setProperty("role", "primary");
-  }
 
-  recent_menu_ = new QMenu(this);
-  QAction * recent_action = toolbar->addAction(
-    style()->standardIcon(QStyle::SP_DirOpenIcon), QStringLiteral("最近文件"));
-  recent_action->setMenu(recent_menu_);
-  if (auto * button = qobject_cast<QToolButton *>(toolbar->widgetForAction(recent_action))) {
-    button->setPopupMode(QToolButton::InstantPopup);
-  }
+  auto * open_menu = new QMenu(this);
+  QAction * choose_cloud_action = open_menu->addAction(
+    style()->standardIcon(QStyle::SP_DialogOpenButton), QStringLiteral("打开点云…"));
+  connect(choose_cloud_action, &QAction::triggered, this, &MainWindow::choose_file);
+  recent_menu_ = open_menu->addMenu(
+    style()->standardIcon(QStyle::SP_DirOpenIcon), QStringLiteral("最近点云"));
   rebuild_recent_menu();
 
-  reload_action_ = toolbar->addAction(
+  reload_action_ = open_menu->addAction(
     style()->standardIcon(QStyle::SP_BrowserReload), QStringLiteral("重新加载"));
   reload_action_->setShortcut(QKeySequence(Qt::Key_F5));
   reload_action_->setEnabled(false);
   connect(reload_action_, &QAction::triggered, this, &MainWindow::reload_file);
+  addAction(reload_action_);
 
-  toolbar->addSeparator();
-  QAction * open_project_action = toolbar->addAction(
-    style()->standardIcon(QStyle::SP_DialogOpenButton), QStringLiteral("打开工程"));
+  open_menu->addSeparator();
+  QAction * open_project_action = open_menu->addAction(
+    style()->standardIcon(QStyle::SP_DialogOpenButton), QStringLiteral("打开工程…"));
   open_project_action->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")));
   connect(open_project_action, &QAction::triggered, this, &MainWindow::open_project);
+  addAction(open_project_action);
 
-  recent_project_menu_ = new QMenu(this);
-  QAction * recent_project_action = toolbar->addAction(
+  recent_project_menu_ = open_menu->addMenu(
     style()->standardIcon(QStyle::SP_FileDialogListView), QStringLiteral("最近工程"));
-  recent_project_action->setMenu(recent_project_menu_);
-  if (auto * button = qobject_cast<QToolButton *>(toolbar->widgetForAction(recent_project_action))) {
-    button->setPopupMode(QToolButton::InstantPopup);
-  }
   rebuild_recent_project_menu();
+  open_action->setMenu(open_menu);
+  if (auto * button = qobject_cast<QToolButton *>(toolbar->widgetForAction(open_action))) {
+    button->setProperty("role", "primary");
+    button->setPopupMode(QToolButton::MenuButtonPopup);
+  }
 
   save_project_action_ = toolbar->addAction(
     style()->standardIcon(QStyle::SP_DialogSaveButton), QStringLiteral("保存工程"));
@@ -554,19 +563,20 @@ void MainWindow::build_interface()
     button->setPopupMode(QToolButton::InstantPopup);
   }
 
-  toolbar->addSeparator();
-  QAction * capture_action = toolbar->addAction(
-    style()->standardIcon(QStyle::SP_DialogSaveButton), QStringLiteral("设备采集"));
+  QAction * capture_action = new QAction(
+    style()->standardIcon(QStyle::SP_DialogSaveButton), QStringLiteral("实时采集"), this);
   capture_action->setObjectName(QStringLiteral("olxCaptureAction"));
-  capture_action->setToolTip(QStringLiteral("从 ROS2 点云话题录制 OLX，并在完成后直接打开"));
+  capture_action->setToolTip(QStringLiteral("切换到设备采集工作台，实时查看 ROS2 点云并录制 OLX"));
   connect(capture_action, &QAction::triggered, this, &MainWindow::open_olx_capture_dialog);
+  addAction(capture_action);
 
-  QAction * rosbag_action = toolbar->addAction(
-    style()->standardIcon(QStyle::SP_MediaPlay), QStringLiteral("ROS Bag"));
+  QAction * rosbag_action = new QAction(
+    style()->standardIcon(QStyle::SP_MediaPlay), QStringLiteral("Bag 诊断"), this);
   rosbag_action->setObjectName(QStringLiteral("rosbagStudioAction"));
-  rosbag_action->setToolTip(QStringLiteral("回放 ROS1/ROS2 bag 并生成离线故障诊断报告"));
+  rosbag_action->setToolTip(QStringLiteral("切换到 ROS1/ROS2 Bag 回放与离线诊断工作台"));
   connect(rosbag_action, &QAction::triggered, this,
     [this]() { open_rosbag_dialog(); });
+  addAction(rosbag_action);
 
   auto * central = new QWidget;
   central->setObjectName(QStringLiteral("centralSurface"));
@@ -1100,7 +1110,84 @@ void MainWindow::build_interface()
   splitter->setStretchFactor(0, 1);
   splitter->setStretchFactor(1, 0);
   splitter->setSizes({1100, 400});
-  setCentralWidget(central);
+
+  workspace_stack_ = new QStackedWidget;
+  workspace_stack_->setObjectName(QStringLiteral("workspaceStack"));
+  workspace_stack_->addWidget(central);
+  capture_panel_ = new OlxCaptureDialog(workspace_stack_, true);
+  rosbag_panel_ = new RosbagDiagnosticDialog(QString(), workspace_stack_, true);
+  workspace_stack_->addWidget(capture_panel_);
+  workspace_stack_->addWidget(rosbag_panel_);
+  connect(capture_panel_, &OlxCaptureDialog::openOlxRequested, this,
+    [this](const QString & path) {
+      switch_workspace(0);
+      pending_project_state_ = QJsonObject{};
+      pending_project_path_.clear();
+      begin_load(path);
+    });
+
+  auto * shell = new QWidget;
+  shell->setObjectName(QStringLiteral("workspaceShell"));
+  auto * shell_layout = new QHBoxLayout(shell);
+  shell_layout->setContentsMargins(0, 0, 0, 0);
+  shell_layout->setSpacing(0);
+  auto * rail = new QFrame(shell);
+  rail->setObjectName(QStringLiteral("workspaceRail"));
+  rail->setFixedWidth(142);
+  auto * rail_layout = new QVBoxLayout(rail);
+  rail_layout->setContentsMargins(10, 14, 10, 11);
+  rail_layout->setSpacing(7);
+  auto * brand = new QLabel(QStringLiteral("POINT // LAB"), rail);
+  brand->setObjectName(QStringLiteral("workspaceBrand"));
+  auto * caption = new QLabel(QStringLiteral("点云任务工作台"), rail);
+  caption->setObjectName(QStringLiteral("workspaceCaption"));
+  rail_layout->addWidget(brand);
+  rail_layout->addWidget(caption);
+  rail_layout->addSpacing(12);
+
+  auto make_workspace_button = [rail](const QString & text, const QString & accessible_name) {
+    auto * button = new QToolButton(rail);
+    button->setObjectName(QStringLiteral("workspaceNavButton"));
+    button->setAccessibleName(accessible_name);
+    button->setText(text);
+    button->setCheckable(true);
+    button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    button->setMinimumHeight(62);
+    return button;
+  };
+  cloud_workspace_button_ = make_workspace_button(
+    QStringLiteral("▦  点云测量\n    VIEW"), QStringLiteral("点云测量工作台"));
+  capture_workspace_button_ = make_workspace_button(
+    QStringLiteral("●  实时采集\n    LIVE"), QStringLiteral("实时设备采集工作台"));
+  rosbag_workspace_button_ = make_workspace_button(
+    QStringLiteral("▶  Bag 诊断\n    INSPECT"), QStringLiteral("ROS Bag 工作台"));
+  cloud_workspace_button_->setProperty("workspaceIndex", 0);
+  capture_workspace_button_->setProperty("workspaceIndex", 1);
+  rosbag_workspace_button_->setProperty("workspaceIndex", 2);
+  auto * workspace_group = new QButtonGroup(shell);
+  workspace_group->setExclusive(true);
+  workspace_group->addButton(cloud_workspace_button_, 0);
+  workspace_group->addButton(capture_workspace_button_, 1);
+  workspace_group->addButton(rosbag_workspace_button_, 2);
+  cloud_workspace_button_->setChecked(true);
+  connect(cloud_workspace_button_, &QToolButton::clicked, this,
+    [this]() { switch_workspace(0); });
+  connect(capture_workspace_button_, &QToolButton::clicked, this,
+    [this]() { open_olx_capture_dialog(); });
+  connect(rosbag_workspace_button_, &QToolButton::clicked, this,
+    [this]() { open_rosbag_dialog(); });
+  rail_layout->addWidget(cloud_workspace_button_);
+  rail_layout->addWidget(capture_workspace_button_);
+  rail_layout->addWidget(rosbag_workspace_button_);
+  rail_layout->addStretch(1);
+  auto * version = new QLabel(QStringLiteral("LOCAL WORKSPACE\nv2.2"), rail);
+  version->setObjectName(QStringLiteral("workspaceVersion"));
+  version->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
+  rail_layout->addWidget(version);
+  shell_layout->addWidget(rail);
+  shell_layout->addWidget(workspace_stack_, 1);
+  setCentralWidget(shell);
 
   progress_bar_ = new QProgressBar;
   progress_bar_->setMaximumWidth(190);
@@ -1141,24 +1228,31 @@ void MainWindow::open_path(const QString & path)
 
 void MainWindow::open_rosbag_dialog(const QString & path)
 {
-  auto * dialog = new RosbagDiagnosticDialog(path, this);
-  dialog->setAttribute(Qt::WA_DeleteOnClose, true);
-  dialog->show();
-  dialog->raise();
-  dialog->activateWindow();
+  if (!rosbag_panel_) return;
+  if (!path.trimmed().isEmpty()) rosbag_panel_->set_bag_path(path);
+  switch_workspace(2);
 }
 
 void MainWindow::open_olx_capture_dialog()
 {
-  auto * dialog = new OlxCaptureDialog(this);
-  connect(dialog, &OlxCaptureDialog::openOlxRequested, this, [this](const QString & path) {
-    pending_project_state_ = QJsonObject{};
-    pending_project_path_.clear();
-    begin_load(path);
-  });
-  dialog->show();
-  dialog->raise();
-  dialog->activateWindow();
+  if (!capture_panel_) return;
+  switch_workspace(1);
+  capture_panel_->activate_workspace();
+}
+
+void MainWindow::switch_workspace(int index)
+{
+  if (!workspace_stack_ || index < 0 || index >= workspace_stack_->count()) return;
+  workspace_stack_->setCurrentIndex(index);
+  if (cloud_toolbar_) cloud_toolbar_->setVisible(index == 0);
+  if (cloud_workspace_button_) cloud_workspace_button_->setChecked(index == 0);
+  if (capture_workspace_button_) capture_workspace_button_->setChecked(index == 1);
+  if (rosbag_workspace_button_) rosbag_workspace_button_->setChecked(index == 2);
+  const std::array<QString, 3> messages{
+    QStringLiteral("点云测量工作台"),
+    QStringLiteral("实时设备采集工作台 · 预览只影响显示，不影响 OLX 全量写入"),
+    QStringLiteral("ROS Bag 回放与离线诊断工作台")};
+  statusBar()->showMessage(messages[static_cast<std::size_t>(index)]);
 }
 
 void MainWindow::choose_file()
@@ -1292,6 +1386,7 @@ void MainWindow::begin_load(const QString & path)
     return;
   }
 
+  switch_workspace(0);
   stop_sequence_playback();
   current_path_ = info.absoluteFilePath();
   QSettings().setValue(QStringLiteral("lastDirectory"), info.absolutePath());
@@ -2945,7 +3040,7 @@ void MainWindow::interaction_mode_changed(int index)
       picking_instruction_label_->setText(
         QStringLiteral("两点测距：Shift + 左键依次选择 A 点和 B 点；自动吸附到完整点云最近点。"));
       viewer_hint_label_->setText(
-        QStringLiteral("两点模式 · Shift + 左键选择 A/B 点 · 完整点云吸附 · 左键旋转 · 中键平移"));
+        QStringLiteral("Shift + 左键选 A/B · 左键旋转 · 中键平移 · 滚轮缩放"));
       break;
   }
   request_render();

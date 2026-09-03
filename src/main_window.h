@@ -40,9 +40,13 @@ class QSpinBox;
 class QTableWidget;
 class QTimer;
 class QToolButton;
+class QToolBar;
+class QStackedWidget;
 class QVTKOpenGLNativeWidget;
 class vtkGenericOpenGLRenderWindow;
 class vtkRenderer;
+class OlxCaptureDialog;
+class RosbagDiagnosticDialog;
 
 enum class CropSelectionType
 {
@@ -187,6 +191,7 @@ private:
   void initialize_viewer();
   void open_rosbag_dialog(const QString & path = QString());
   void open_olx_capture_dialog();
+  void switch_workspace(int index);
   void begin_load(const QString & path);
   void render_cloud(bool reset_camera);
   void fill_information_panel();
@@ -403,6 +408,13 @@ private:
   QComboBox * measurement_type_filter_ = nullptr;
   QComboBox * measurement_group_filter_ = nullptr;
   QProgressBar * progress_bar_ = nullptr;
+  QToolBar * cloud_toolbar_ = nullptr;
+  QStackedWidget * workspace_stack_ = nullptr;
+  QToolButton * cloud_workspace_button_ = nullptr;
+  QToolButton * capture_workspace_button_ = nullptr;
+  QToolButton * rosbag_workspace_button_ = nullptr;
+  OlxCaptureDialog * capture_panel_ = nullptr;
+  RosbagDiagnosticDialog * rosbag_panel_ = nullptr;
   QPushButton * finish_polyline_button_ = nullptr;
   QPushButton * reset_crop_button_ = nullptr;
   QMenu * recent_menu_ = nullptr;

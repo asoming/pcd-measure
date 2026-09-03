@@ -34,6 +34,7 @@
 #include <QScrollArea>
 #include <QSettings>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QSurfaceFormat>
@@ -43,6 +44,7 @@
 #include <QTextEdit>
 #include <QTimer>
 #include <QToolBar>
+#include <QToolButton>
 #include <QUrl>
 #include <QtEndian>
 
@@ -52,6 +54,7 @@
 #include <vtkRenderer.h>
 
 #include "main_window.h"
+#include "olx_capture_dialog.h"
 #include "plot_widget.h"
 
 class MainWindowTest : public QObject
@@ -408,14 +411,63 @@ private slots:
     QVERIFY(drag_event.isAccepted());
   }
 
-  void rosbagToolbarOpenAndDragDrop()
+  void embeddedWorkspacesAndDragDrop()
   {
+    int cloud_commands = 0;
+    for (QAction * toolbar_action : window_->cloud_toolbar_->actions()) {
+      if (!toolbar_action->isSeparator()) ++cloud_commands;
+    }
+    QCOMPARE(cloud_commands, 6);
     auto * capture_action = window_->findChild<QAction *>(QStringLiteral("olxCaptureAction"));
     QVERIFY(capture_action);
     QVERIFY(capture_action->toolTip().contains(QStringLiteral("OLX")));
     capture_action->trigger();
     QTRY_VERIFY(window_->findChild<QDialog *>(QStringLiteral("olxCaptureDialog")));
     auto * capture_dialog = window_->findChild<QDialog *>(QStringLiteral("olxCaptureDialog"));
+    QCOMPARE(window_->workspace_stack_->currentIndex(), 1);
+    QVERIFY(!capture_dialog->isWindow());
+    QVERIFY(window_->capture_workspace_button_->isChecked());
+    QVERIFY(!window_->cloud_toolbar_->isVisible());
+    QVERIFY(capture_dialog->findChild<QWidget *>(QStringLiteral("olxLivePreview")));
+    QTest::keyClick(capture_dialog, Qt::Key_Escape);
+    QVERIFY(capture_dialog->isVisible());
+    QCOMPARE(window_->workspace_stack_->currentIndex(), 1);
+    auto * preview_status = capture_dialog->findChild<QLabel *>(QStringLiteral("olxPreviewStatus"));
+    QVERIFY(preview_status);
+    QByteArray preview("PCPV0001", 8);
+    append_u32(preview, 42);
+    append_double(preview, 12.5);
+    constexpr int preview_points = 6000;
+    append_u32(preview, preview_points);
+    for (int point = 0; point < preview_points; ++point) {
+      const int surface = point % 3;
+      const int sample = point / 3;
+      const float u = static_cast<float>(sample % 80);
+      const float v = static_cast<float>((sample / 80) % 25);
+      const float x = surface == 2 ? 0.0F : u * 0.10F;
+      const float y = surface == 1 ? 0.0F : (surface == 2 ? u * 0.05F : v * 0.15F);
+      const float z = surface == 0 ? 0.03F * std::sin(u * 0.2F) : v * 0.08F;
+      append_float(preview, x);
+      append_float(preview, y);
+      append_float(preview, z);
+      preview.append(static_cast<char>(surface == 0 ? 70 : 190));
+      preview.append(static_cast<char>(surface == 1 ? 170 : 110));
+      preview.append(static_cast<char>(surface == 2 ? 225 : 155));
+      preview.append(static_cast<char>(255));
+    }
+    QFile preview_file(window_->capture_panel_->preview_file_path_);
+    QVERIFY(preview_file.open(QIODevice::WriteOnly));
+    QCOMPARE(preview_file.write(preview), static_cast<qint64>(preview.size()));
+    preview_file.close();
+    window_->capture_panel_->refresh_live_preview();
+    QVERIFY(preview_status->text().contains(QStringLiteral("FRAME 42")));
+    QVERIFY(preview_status->text().contains(QStringLiteral("6000 PTS")));
+    const QString valid_preview_status = preview_status->text();
+    QVERIFY(preview_file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    preview_file.write("broken preview");
+    preview_file.close();
+    window_->capture_panel_->refresh_live_preview();
+    QCOMPARE(preview_status->text(), valid_preview_status);
     auto * workspace = capture_dialog->findChild<QLineEdit *>(QStringLiteral("olxWorkspace"));
     auto * topic_status = capture_dialog->findChild<QLabel *>(QStringLiteral("olxTopicStatus"));
     auto * record_button = capture_dialog->findChild<QPushButton *>(QStringLiteral("olxRecordButton"));
@@ -429,8 +481,21 @@ private slots:
     const QString capture_screenshot = QString::fromLocal8Bit(
       qgetenv("PCD_MEASURE_TEST_CAPTURE_SCREENSHOT"));
     if (!capture_screenshot.isEmpty()) {
+      auto * recording_status = capture_dialog->findChild<QLabel *>(
+        QStringLiteral("olxRecordingStatus"));
+      auto * counters = capture_dialog->findChild<QLabel *>(QStringLiteral("olxCounters"));
+      QVERIFY(recording_status);
+      QVERIFY(counters);
+      recording_status->setText(QStringLiteral("● RECORDING · /odin1/cloud_slam"));
+      recording_status->setStyleSheet(QStringLiteral(
+        "color:#FFD38A; background:#302817; border:1px solid #8A6933; border-radius:5px; "
+        "padding:7px 10px; font-family:'DejaVu Sans Mono'; font-weight:700;"));
+      counters->setText(QStringLiteral("帧 42 · 点 816,420 · 4.2 s\n位姿 41 · 图像 0"));
+      preview_status->setText(QStringLiteral("LIVE · FRAME 42 · 6000 PTS · 9.8 Hz"));
+      record_button->setEnabled(false);
+      stop_button->setEnabled(true);
       QApplication::processEvents();
-      QVERIFY2(capture_dialog->grab().save(capture_screenshot, "PNG"),
+      QVERIFY2(window_->grab().save(capture_screenshot, "PNG"),
         qPrintable(capture_screenshot));
       QVERIFY(QFileInfo(capture_screenshot).size() > 1000);
     }
@@ -440,7 +505,6 @@ private slots:
     QVERIFY(QMetaObject::invokeMethod(capture_dialog, "refresh_status", Qt::DirectConnection));
     QVERIFY(topic_status->text().contains(QStringLiteral("未构建")));
     QVERIFY(!record_button->isEnabled());
-    capture_dialog->close();
 
     auto * action = window_->findChild<QAction *>(QStringLiteral("rosbagStudioAction"));
     QVERIFY(action);
@@ -467,10 +531,27 @@ private slots:
 
     QTRY_VERIFY(window_->findChild<QDialog *>(QStringLiteral("rosbagDiagnosticDialog")));
     auto * dialog = window_->findChild<QDialog *>(QStringLiteral("rosbagDiagnosticDialog"));
+    QCOMPARE(window_->workspace_stack_->currentIndex(), 2);
+    QVERIFY(!dialog->isWindow());
+    QVERIFY(window_->rosbag_workspace_button_->isChecked());
+    QVERIFY(!window_->cloud_toolbar_->isVisible());
+    QTest::keyClick(dialog, Qt::Key_Escape);
+    QVERIFY(dialog->isVisible());
+    QCOMPARE(window_->workspace_stack_->currentIndex(), 2);
     auto * path_edit = dialog->findChild<QLineEdit *>(QStringLiteral("rosbagPath"));
     QVERIFY(path_edit);
     QCOMPARE(path_edit->text(), QFileInfo(bag_path).absoluteFilePath());
-    dialog->close();
+    const QString embedded_rosbag_screenshot = QString::fromLocal8Bit(
+      qgetenv("PCD_MEASURE_TEST_EMBEDDED_ROSBAG_SCREENSHOT"));
+    if (!embedded_rosbag_screenshot.isEmpty()) {
+      QApplication::processEvents();
+      QVERIFY2(window_->grab().save(embedded_rosbag_screenshot, "PNG"),
+        qPrintable(embedded_rosbag_screenshot));
+      QVERIFY(QFileInfo(embedded_rosbag_screenshot).size() > 1000);
+    }
+    window_->cloud_workspace_button_->click();
+    QCOMPARE(window_->workspace_stack_->currentIndex(), 0);
+    QVERIFY(window_->cloud_toolbar_->isVisible());
   }
 
   void recentMenusAndProjectDragDrop()
@@ -1881,6 +1962,21 @@ private slots:
     QVERIFY(scroll->viewport()->height() > 300);
     QVERIFY(toolbar->height() > 30);
     QVERIFY(window_->centralWidget()->rect().contains(window_->centralWidget()->rect().center()));
+    window_->switch_workspace(1);
+    QApplication::processEvents();
+    auto * live_preview = window_->findChild<QWidget *>(QStringLiteral("olxLivePreview"));
+    QVERIFY(live_preview);
+    QVERIFY(live_preview->isVisible());
+    QVERIFY(live_preview->width() >= 400);
+    QVERIFY(live_preview->height() >= 300);
+    window_->switch_workspace(2);
+    QApplication::processEvents();
+    auto * bag_tabs = window_->findChild<QWidget *>(QStringLiteral("rosbagResultTabs"));
+    QVERIFY(bag_tabs);
+    QVERIFY(bag_tabs->isVisible());
+    QVERIFY(bag_tabs->width() >= 700);
+    window_->switch_workspace(0);
+    QVERIFY(window_->cloud_toolbar_->isVisible());
     const QString output = QString::fromLocal8Bit(qgetenv("PCD_MEASURE_TEST_UI_SCREENSHOT"));
     if (!output.isEmpty()) {
       QVERIFY2(window_->grab().save(output, "PNG"), qPrintable(output));

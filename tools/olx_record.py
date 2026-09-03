@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import pathlib
 import re
 import shutil
@@ -240,8 +241,61 @@ def encode_pose_frame(message: Any, frame_id: int) -> bytes:
     return struct.pack("<Id7f", int(frame_id), _timestamp_seconds(message.header), *values)
 
 
+def write_preview_file(path: pathlib.Path, encoded_frame: bytes, maximum_points: int) -> int:
+    """Atomically publish a bounded XYZRGBA frame for the live UI."""
+    if maximum_points <= 0:
+        raise ValueError("preview point limit must be positive")
+    if len(encoded_frame) < 16:
+        raise ValueError("encoded cloud frame is truncated")
+    frame_id, timestamp, point_count = struct.unpack_from("<IdI", encoded_frame)
+    payload = memoryview(encoded_frame)[16:]
+    if len(payload) != point_count * 16:
+        raise ValueError("encoded cloud frame has an invalid point payload")
+
+    if point_count <= maximum_points:
+        sampled = bytes(payload)
+        sampled_count = point_count
+    else:
+        stride = math.ceil(point_count / maximum_points)
+        indices = range(0, point_count, stride)
+        sampled_count = min(maximum_points, math.ceil(point_count / stride))
+        sampled_buffer = bytearray(sampled_count * 16)
+        for output_index, source_index in enumerate(indices):
+            if output_index >= sampled_count:
+                break
+            source_offset = source_index * 16
+            output_offset = output_index * 16
+            sampled_buffer[output_offset : output_offset + 16] = payload[
+                source_offset : source_offset + 16
+            ]
+        sampled = bytes(sampled_buffer)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    try:
+        with temporary.open("wb") as output:
+            output.write(struct.pack("<8sIdI", b"PCPV0001", frame_id, timestamp, sampled_count))
+            output.write(sampled)
+        os.replace(temporary, path)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+    return sampled_count
+
+
 class SessionRecorder:
-    def __init__(self, root: pathlib.Path, calibration: pathlib.Path | None = None) -> None:
+    def __init__(
+        self,
+        root: pathlib.Path,
+        calibration: pathlib.Path | None = None,
+        preview_file: pathlib.Path | None = None,
+        preview_points: int = 60_000,
+        preview_interval: float = 0.2,
+    ) -> None:
+        if preview_points <= 0 or preview_interval < 0:
+            raise ValueError("preview points must be positive and interval must not be negative")
         self.root = root
         self.image_directory = root / "image"
         self.cloud_path = root / f"MT{root.name}.olx"
@@ -254,6 +308,12 @@ class SessionRecorder:
         self.image_frames = 0
         self.points = 0
         self.errors = 0
+        self.preview_file = preview_file
+        self.preview_points_limit = preview_points
+        self.preview_interval = preview_interval
+        self.preview_points = 0
+        self.preview_error = ""
+        self._last_preview_at = float("-inf")
         self.started_at = time.monotonic()
         root.mkdir(parents=True, exist_ok=False)
         try:
@@ -283,6 +343,16 @@ class SessionRecorder:
         self.cloud_file.write(frame)
         self.cloud_frames += 1
         self.points += valid
+        now = time.monotonic()
+        if self.preview_file is not None and now - self._last_preview_at >= self.preview_interval:
+            try:
+                self.preview_points = write_preview_file(
+                    self.preview_file, frame, self.preview_points_limit
+                )
+                self._last_preview_at = now
+            except OSError as error:
+                self.preview_error = str(error)
+                self.preview_file = None
 
     def write_pose(self, message: Any) -> None:
         self.pose_file.write(encode_pose_frame(message, self.pose_frames))
@@ -311,6 +381,8 @@ class SessionRecorder:
             "image_frames": self.image_frames,
             "points": self.points,
             "errors": self.errors,
+            "preview_points": self.preview_points,
+            "preview_error": self.preview_error,
             "elapsed_seconds": round(time.monotonic() - self.started_at, 3),
             "final": final,
         }
@@ -359,6 +431,9 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--no-pose", action="store_true")
     parser.add_argument("--no-image", action="store_true")
     parser.add_argument("--calibration", default="")
+    parser.add_argument("--preview-file", default="", help="atomic live-preview output path")
+    parser.add_argument("--preview-points", type=int, default=60_000)
+    parser.add_argument("--preview-interval", type=float, default=0.2, help="preview refresh seconds")
     parser.add_argument("--duration", type=float, default=0.0, help="stop after N seconds; zero means manual")
     parser.add_argument("--max-frames", type=int, default=0, help="stop after N cloud frames; zero means manual")
     return parser.parse_args(argv)
@@ -366,8 +441,14 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_arguments(list(argv if argv is not None else sys.argv[1:]))
-    if args.duration < 0 or args.max_frames < 0:
-        raise SystemExit("duration and max-frames must not be negative")
+    if (
+        args.duration < 0
+        or args.max_frames < 0
+        or args.preview_points <= 0
+        or args.preview_points > 200_000
+        or args.preview_interval < 0
+    ):
+        raise SystemExit("duration/max-frames/preview options are outside the supported range")
 
     try:
         import rclpy
@@ -383,7 +464,14 @@ def main(argv: list[str] | None = None) -> int:
         output_directory.mkdir(parents=True, exist_ok=True)
         session_root = _next_session_root(output_directory, args.session_name)
         calibration = pathlib.Path(args.calibration).expanduser().resolve() if args.calibration else None
-        recorder = SessionRecorder(session_root, calibration)
+        preview_file = pathlib.Path(args.preview_file).expanduser().resolve() if args.preview_file else None
+        recorder = SessionRecorder(
+            session_root,
+            calibration,
+            preview_file=preview_file,
+            preview_points=args.preview_points,
+            preview_interval=args.preview_interval,
+        )
     except (OSError, ValueError) as error:
         print(f"ERROR cannot create OLX session: {error}", file=sys.stderr, flush=True)
         return 3

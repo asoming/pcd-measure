@@ -40,6 +40,7 @@
 #include <QSaveFile>
 #include <QScrollBar>
 #include <QSettings>
+#include <QSizePolicy>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QStandardPaths>
@@ -247,15 +248,23 @@ bool launch_html_report(
 
 RosbagDiagnosticDialog::RosbagDiagnosticDialog(
   const QString & initial_path,
-  QWidget * parent)
-: QDialog(parent)
+  QWidget * parent,
+  bool embedded)
+: QDialog(parent, embedded ? Qt::WindowFlags(Qt::Widget) : Qt::WindowFlags())
 {
   setObjectName(QStringLiteral("rosbagDiagnosticDialog"));
+  setProperty("embeddedWorkspace", embedded);
   setAttribute(Qt::WA_DeleteOnClose, false);
   setAcceptDrops(true);
   setWindowTitle(QStringLiteral("ROS Bag 回放与离线诊断"));
-  setMinimumSize(1060, 700);
-  resize(1440, 880);
+  if (embedded) {
+    setWindowFlags(Qt::Widget);
+    setMinimumSize(0, 0);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  } else {
+    setMinimumSize(1060, 700);
+    resize(1440, 880);
+  }
   build_interface();
 
   connect(&diagnostic_process_, &QProcess::readyReadStandardOutput,
@@ -312,6 +321,12 @@ RosbagDiagnosticDialog::~RosbagDiagnosticDialog()
     playback_process_.kill();
     playback_process_.waitForFinished(1000);
   }
+}
+
+void RosbagDiagnosticDialog::reject()
+{
+  if (property("embeddedWorkspace").toBool()) return;
+  QDialog::reject();
 }
 
 void RosbagDiagnosticDialog::build_interface()

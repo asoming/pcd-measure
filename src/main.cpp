@@ -19,7 +19,7 @@ int main(int argc, char * argv[])
   QApplication app(argc, argv);
   QCoreApplication::setApplicationName(QStringLiteral("PCD Measure"));
   QApplication::setApplicationDisplayName(QStringLiteral("点云测量工具"));
-  QCoreApplication::setApplicationVersion(QStringLiteral("2.1.0"));
+  QCoreApplication::setApplicationVersion(QStringLiteral("2.2.0"));
   QCoreApplication::setOrganizationName(QStringLiteral("PCD Tools"));
 
   MainWindow window;

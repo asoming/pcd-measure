@@ -1,26 +1,41 @@
 #pragma once
 
+#include <cstdint>
+
 #include <QByteArray>
 #include <QDialog>
+#include <QElapsedTimer>
 #include <QProcess>
+#include <QTemporaryDir>
 
 class QCheckBox;
 class QCloseEvent;
 class QComboBox;
+class QDialogButtonBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
 class QTextEdit;
+class QTimer;
+class LiveCloudPreviewWidget;
 
 class OlxCaptureDialog : public QDialog
 {
   Q_OBJECT
 
+  friend class MainWindowTest;
+
 public:
-  explicit OlxCaptureDialog(QWidget * parent = nullptr);
+  explicit OlxCaptureDialog(QWidget * parent = nullptr, bool embedded = false);
+  ~OlxCaptureDialog() override;
+
+  void activate_workspace();
 
 signals:
   void openOlxRequested(const QString & path);
+
+public slots:
+  void reject() override;
 
 protected:
   void closeEvent(QCloseEvent * event) override;
@@ -34,6 +49,7 @@ private slots:
   void stop_recording();
   void consume_recorder_output();
   void recorder_finished(int exit_code, QProcess::ExitStatus status);
+  void refresh_live_preview();
 
 private:
   QString project_directory() const;
@@ -41,6 +57,7 @@ private:
   void append_log(const QString & text);
   void update_recording_controls();
   bool usb_device_present() const;
+  void stop_child_processes();
 
   QLineEdit * workspace_edit_ = nullptr;
   QLineEdit * output_edit_ = nullptr;
@@ -59,6 +76,10 @@ private:
   QPushButton * stop_button_ = nullptr;
   QPushButton * open_button_ = nullptr;
   QTextEdit * log_edit_ = nullptr;
+  QDialogButtonBox * close_buttons_ = nullptr;
+  LiveCloudPreviewWidget * live_preview_ = nullptr;
+  QLabel * preview_status_label_ = nullptr;
+  QTimer * preview_timer_ = nullptr;
 
   QProcess topic_probe_;
   QProcess driver_process_;
@@ -66,6 +87,14 @@ private:
   QByteArray recorder_output_buffer_;
   QString last_session_path_;
   QString last_olx_path_;
+  QString last_preview_error_;
+  QString preview_file_path_;
+  QTemporaryDir preview_directory_;
+  QElapsedTimer preview_rate_timer_;
+  std::uint32_t last_preview_frame_id_ = 0;
+  bool have_preview_frame_ = false;
+  double preview_rate_hz_ = 0.0;
+  bool embedded_ = false;
   bool close_when_finished_ = false;
   bool driver_started_here_ = false;
   bool selected_topic_ready_ = false;

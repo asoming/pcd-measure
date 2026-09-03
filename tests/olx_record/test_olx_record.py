@@ -197,6 +197,34 @@ class OlxRecordTest(unittest.TestCase):
             self.assertTrue((root / "image" / "info.txt").is_file())
             recorder.close()
 
+    def test_live_preview_is_bounded_and_keeps_xyzrgba(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = pathlib.Path(temporary)
+            root = parent / "preview-session"
+            preview = parent / "runtime" / "live-preview.bin"
+            points = [
+                (float(index), float(index + 1), float(index + 2),
+                 10 + index, 20 + index, 30 + index)
+                for index in range(5)
+            ]
+            recorder = olx_record.SessionRecorder(
+                root, preview_file=preview, preview_points=2, preview_interval=0.0
+            )
+            recorder.write_cloud(cloud_message(points))
+            status = recorder.status()
+            recorder.close()
+
+            payload = preview.read_bytes()
+            self.assertEqual(len(payload), 24 + 2 * 16)
+            self.assertEqual(struct.unpack_from("<8sIdI", payload),
+                             (b"PCPV0001", 0, 12.25, 2))
+            self.assertEqual(struct.unpack_from("<fffBBBB", payload, 24),
+                             (0.0, 1.0, 2.0, 10, 20, 30, 255))
+            self.assertEqual(struct.unpack_from("<fffBBBB", payload, 40),
+                             (3.0, 4.0, 5.0, 13, 23, 33, 255))
+            self.assertEqual(status["preview_points"], 2)
+            self.assertFalse(list(preview.parent.glob("*.tmp-*")))
+
     def test_images_are_indexed_and_empty_payload_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary) / "images"

@@ -28,10 +28,14 @@ class RosbagDiagnosticDialog final : public QDialog
 public:
   explicit RosbagDiagnosticDialog(
     const QString & initial_path = QString(),
-    QWidget * parent = nullptr);
+    QWidget * parent = nullptr,
+    bool embedded = false);
   ~RosbagDiagnosticDialog() override;
 
   void set_bag_path(const QString & path);
+
+public slots:
+  void reject() override;
 
 protected:
   void closeEvent(QCloseEvent * event) override;
