@@ -8,6 +8,9 @@ export PCD_MEASURE_PROJECT_DIR="${project_dir}"
 if [[ -x "${project_dir}/.rosbag-venv/bin/python" ]]; then
   export PCD_MEASURE_ROSBAG_PYTHON="${project_dir}/.rosbag-venv/bin/python"
 fi
+if [[ -x "${project_dir}/tools/map_to_ply" ]]; then
+  export PCD_MEASURE_MAP_TO_PLY="${project_dir}/tools/map_to_ply"
+fi
 
 if [[ ! -x "${binary_path}" ]]; then
   "${project_dir}/build.sh"

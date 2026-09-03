@@ -1,4 +1,5 @@
 #include <cmath>
+#include <cstring>
 
 #include <QDir>
 #include <QFile>
@@ -7,8 +8,10 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QtEndian>
 
 #include <pcl/io/pcd_io.h>
+#include <pcl/io/ply_io.h>
 
 #include "cloud_data.h"
 
@@ -36,6 +39,57 @@ private:
     cloud.height = 1;
     cloud.is_dense = true;
     return cloud;
+  }
+
+  static void append_u32(QByteArray & bytes, std::uint32_t value)
+  {
+    const quint32 little = qToLittleEndian<quint32>(value);
+    bytes.append(reinterpret_cast<const char *>(&little), sizeof(little));
+  }
+
+  static void append_float(QByteArray & bytes, float value)
+  {
+    quint32 bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    append_u32(bytes, bits);
+  }
+
+  static void append_double(QByteArray & bytes, double value)
+  {
+    quint64 bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    const quint64 little = qToLittleEndian<quint64>(bits);
+    bytes.append(reinterpret_cast<const char *>(&little), sizeof(little));
+  }
+
+  static QByteArray olx_fixture(int point_record_bytes)
+  {
+    QByteArray bytes;
+    const std::array<std::array<float, 3>, 6> points{{
+      {{0.0F, 0.0F, 0.0F}}, {{1.0F, 0.0F, 0.1F}}, {{0.0F, 1.0F, 0.2F}},
+      {{1.0F, 1.0F, 0.3F}}, {{2.0F, 0.0F, 0.4F}}, {{0.0F, 2.0F, 0.5F}}}};
+    for (std::uint32_t frame = 0; frame < 2; ++frame) {
+      append_u32(bytes, frame + 7);
+      append_double(bytes, 1000.0 + frame * 0.1);
+      append_u32(bytes, 3);
+      for (std::size_t local = 0; local < 3; ++local) {
+        const std::size_t index = frame * 3 + local;
+        append_float(bytes, points[index][0]);
+        append_float(bytes, points[index][1]);
+        append_float(bytes, points[index][2]);
+        bytes.append(static_cast<char>(10 + index));
+        bytes.append(static_cast<char>(40 + index));
+        bytes.append(static_cast<char>(90 + index));
+        if (point_record_bytes == 16) bytes.append(static_cast<char>(200 + index));
+      }
+    }
+    return bytes;
+  }
+
+  static bool write_bytes(const QString & path, const QByteArray & bytes)
+  {
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
   }
 
 private slots:
@@ -125,6 +179,195 @@ private slots:
     const CloudLoadResult tiny_result = load_pcd_and_analyze(tiny);
     QVERIFY(!tiny_result.ok());
     QVERIFY(tiny_result.error.contains(QStringLiteral("不足 3")));
+  }
+
+  void plyAndMapFormatDetection()
+  {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto source = colored_cloud(30);
+    const QString ply = directory.filePath(QStringLiteral("彩色 sample.ply"));
+    QCOMPARE(pcl::io::savePLYFileBinary(ply.toStdString(), source), 0);
+    QCOMPARE(detect_cloud_source_kind(ply), CloudSourceKind::Ply);
+    const CloudLoadResult ply_result = load_cloud_and_analyze(ply);
+    QVERIFY2(ply_result.ok(), qPrintable(ply_result.error));
+    QCOMPARE(ply_result.metrics.finite_points, std::size_t(30));
+    QCOMPARE(ply_result.source_format, QStringLiteral("PLY 点云"));
+
+    QByteArray map_header("MAPV0001", 8);
+    append_u32(map_header, 5);
+    map_header.append(QByteArray(64, '\0'));
+    const QString map = directory.filePath(QStringLiteral("sample.bin"));
+    QVERIFY(write_bytes(map, map_header));
+    QCOMPARE(detect_cloud_source_kind(map), CloudSourceKind::OdinMapBin);
+
+    const bool had_project_dir = qEnvironmentVariableIsSet("PCD_MEASURE_PROJECT_DIR");
+    const QByteArray old_project_dir = qgetenv("PCD_MEASURE_PROJECT_DIR");
+    qputenv("PCD_MEASURE_PROJECT_DIR", QFile::encodeName(directory.path()));
+    const CloudLoadResult map_result = load_cloud_and_analyze(map);
+    if (had_project_dir) qputenv("PCD_MEASURE_PROJECT_DIR", old_project_dir);
+    else qunsetenv("PCD_MEASURE_PROJECT_DIR");
+    QVERIFY(!map_result.ok());
+    QVERIFY(map_result.error.contains(QStringLiteral("解码")));
+
+    const QString other_bin = directory.filePath(QStringLiteral("OdinPose.bin"));
+    QVERIFY(write_bytes(other_bin, QByteArray(40, '\0')));
+    QCOMPARE(detect_cloud_source_kind(other_bin), CloudSourceKind::Unknown);
+    QVERIFY(load_cloud_and_analyze(other_bin).error.contains(QStringLiteral("配套文件")));
+  }
+
+  void mapConverterFailureAndUnsupportedVersion()
+  {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QByteArray map_header("MAPV0001", 8);
+    append_u32(map_header, 5);
+    map_header.append(QByteArray(64, '\0'));
+    const QString map = directory.filePath(QStringLiteral("map.bin"));
+    QVERIFY(write_bytes(map, map_header));
+
+    const QString converter = directory.filePath(QStringLiteral("fake converter.sh"));
+    QVERIFY(write_bytes(converter, QByteArray("#!/bin/sh\necho decoder-broken >&2\nexit 7\n")));
+    QVERIFY(QFile::setPermissions(converter,
+      QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
+    const bool had_converter = qEnvironmentVariableIsSet("PCD_MEASURE_MAP_TO_PLY");
+    const QByteArray old_converter = qgetenv("PCD_MEASURE_MAP_TO_PLY");
+    qputenv("PCD_MEASURE_MAP_TO_PLY", QFile::encodeName(converter));
+    const CloudLoadResult failed = load_cloud_and_analyze(map);
+    if (had_converter) qputenv("PCD_MEASURE_MAP_TO_PLY", old_converter);
+    else qunsetenv("PCD_MEASURE_MAP_TO_PLY");
+    QVERIFY(!failed.ok());
+    QVERIFY(failed.error.contains(QStringLiteral("退出码 7")));
+    QVERIFY(failed.error.contains(QStringLiteral("decoder-broken")));
+
+    QByteArray future_header("MAPV0001", 8);
+    append_u32(future_header, 6);
+    future_header.append(QByteArray(64, '\0'));
+    const QString future = directory.filePath(QStringLiteral("future.bin"));
+    QVERIFY(write_bytes(future, future_header));
+    const CloudLoadResult unsupported = load_cloud_and_analyze(future);
+    QVERIFY(!unsupported.ok());
+    QVERIFY(unsupported.error.contains(QStringLiteral("v6")));
+
+    const QString short_map = directory.filePath(QStringLiteral("short.bin"));
+    QVERIFY(write_bytes(short_map, QByteArray("MAPV0001", 8)));
+    QCOMPARE(detect_cloud_source_kind(short_map), CloudSourceKind::Unknown);
+  }
+
+  void olxRgbAndRgbaLayoutsWithCompanions()
+  {
+    for (const int record_bytes : {15, 16}) {
+      QTemporaryDir directory;
+      QVERIFY(directory.isValid());
+      const QString olx = directory.filePath(QStringLiteral("MT 测试_%1.olx").arg(record_bytes));
+      QVERIFY(write_bytes(olx, olx_fixture(record_bytes)));
+
+      QVERIFY(write_bytes(directory.filePath(QStringLiteral("OdinPose.bin")), QByteArray(80, '\0')));
+      QByteArray image_stream;
+      for (std::uint32_t frame = 0; frame < 2; ++frame) {
+        append_u32(image_stream, frame);
+        append_double(image_stream, 1000.0 + frame * 0.1);
+        append_u32(image_stream, 4);
+        image_stream.append("TEST", 4);
+      }
+      QVERIFY(write_bytes(directory.filePath(QStringLiteral("OdinImage.bin")), image_stream));
+      QVERIFY(QDir().mkpath(directory.filePath(QStringLiteral("image"))));
+      QVERIFY(write_bytes(directory.filePath(QStringLiteral("image/cam_in_ex.txt")),
+        QByteArray("calibration\n")));
+
+      QCOMPARE(detect_cloud_source_kind(olx), CloudSourceKind::OdinOlx);
+      const CloudLoadResult result = load_cloud_and_analyze(olx, 4);
+      QVERIFY2(result.ok(), qPrintable(result.error));
+      QCOMPARE(result.olx_point_record_bytes, record_bytes);
+      QCOMPARE(result.frames.size(), std::size_t(2));
+      QCOMPARE(result.metrics.header_points, std::size_t(6));
+      QCOMPARE(result.metrics.finite_points, std::size_t(6));
+      QCOMPARE(result.frames.front().id, std::uint32_t(7));
+      QCOMPARE(result.frames.back().point_offset, std::size_t(3));
+      QCOMPARE(result.cloud->at(4).r, std::uint8_t(14));
+      QCOMPARE(result.cloud->at(4).g, std::uint8_t(44));
+      QCOMPARE(result.cloud->at(4).b, std::uint8_t(94));
+      QCOMPARE(result.pose_frame_count, std::size_t(2));
+      QCOMPARE(result.image_frames.size(), std::size_t(2));
+      QCOMPARE(result.image_frames.back().payload_size, std::uint32_t(4));
+      QVERIFY(result.metrics.display_downsampled);
+      QVERIFY(result.display_cloud->size() <= std::size_t(4));
+      QVERIFY(result.encoding.contains(QStringLiteral("%1 B/点").arg(record_bytes)));
+    }
+  }
+
+  void olxRejectsTruncationAndInvalidTimestamp()
+  {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QByteArray truncated = olx_fixture(16);
+    truncated.chop(1);
+    const QString truncated_path = directory.filePath(QStringLiteral("truncated.olx"));
+    QVERIFY(write_bytes(truncated_path, truncated));
+    const CloudLoadResult truncated_result = load_cloud_and_analyze(truncated_path);
+    QVERIFY(!truncated_result.ok());
+    QVERIFY(truncated_result.error.contains(QStringLiteral("无法识别 OLX")));
+
+    QByteArray invalid;
+    append_u32(invalid, 0);
+    append_double(invalid, std::numeric_limits<double>::quiet_NaN());
+    append_u32(invalid, 3);
+    invalid.append(QByteArray(3 * 16, '\0'));
+    const QString invalid_path = directory.filePath(QStringLiteral("invalid-time.olx"));
+    QVERIFY(write_bytes(invalid_path, invalid));
+    QVERIFY(!load_cloud_and_analyze(invalid_path).ok());
+
+    const QString empty_path = directory.filePath(QStringLiteral("empty.olx"));
+    QVERIFY(write_bytes(empty_path, QByteArray()));
+    QVERIFY(load_cloud_and_analyze(empty_path).error.contains(QStringLiteral("过短")));
+  }
+
+  void olxZeroFrameInvalidPointAndCompanionWarnings()
+  {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QByteArray bytes;
+    append_u32(bytes, 99);
+    append_double(bytes, 999.9);
+    append_u32(bytes, 0);
+    bytes.append(olx_fixture(16));
+
+    const quint32 nan_bits = qToLittleEndian<quint32>(0x7FC00000U);
+    std::memcpy(bytes.data() + 16 + 16 + 8, &nan_bits, sizeof(nan_bits));
+    const qint64 second_frame_timestamp_offset = 16 + 16 + 3 * 16 + 4;
+    double earlier_timestamp = 999.0;
+    quint64 earlier_bits = 0;
+    std::memcpy(&earlier_bits, &earlier_timestamp, sizeof(earlier_bits));
+    earlier_bits = qToLittleEndian<quint64>(earlier_bits);
+    std::memcpy(bytes.data() + second_frame_timestamp_offset, &earlier_bits, sizeof(earlier_bits));
+
+    const QString olx = directory.filePath(QStringLiteral("warnings.olx"));
+    QVERIFY(write_bytes(olx, bytes));
+    QVERIFY(write_bytes(directory.filePath(QStringLiteral("OdinPose.bin")), QByteArray(41, '\0')));
+    QByteArray broken_image;
+    append_u32(broken_image, 1);
+    append_double(broken_image, 1000.0);
+    append_u32(broken_image, 100);
+    broken_image.append('X');
+    QVERIFY(write_bytes(directory.filePath(QStringLiteral("OdinImage.bin")), broken_image));
+    QVERIFY(QDir().mkpath(directory.filePath(QStringLiteral("image"))));
+    QVERIFY(write_bytes(directory.filePath(QStringLiteral("image/000001.jpg")), QByteArray("not-an-image")));
+
+    const CloudLoadResult result = load_cloud_and_analyze(olx);
+    QVERIFY2(result.ok(), qPrintable(result.error));
+    QCOMPARE(result.frames.size(), std::size_t(3));
+    QCOMPARE(result.frames.front().point_count, std::size_t(0));
+    QCOMPARE(result.metrics.header_points, std::size_t(6));
+    QCOMPARE(result.metrics.finite_points, std::size_t(5));
+    QCOMPARE(result.metrics.invalid_points, std::size_t(1));
+    QCOMPARE(result.pose_frame_count, std::size_t(1));
+    QCOMPARE(result.image_frames.size(), std::size_t(0));
+    QCOMPARE(result.image_paths.size(), 1);
+    const QString warnings = result.source_warnings.join(QLatin1Char('\n'));
+    QVERIFY(warnings.contains(QStringLiteral("无效坐标")));
+    QVERIFY(warnings.contains(QStringLiteral("时间戳倒退")));
+    QVERIFY(warnings.contains(QStringLiteral("尾部不完整")));
+    QVERIFY(warnings.contains(QStringLiteral("OdinImage.bin")));
   }
 
   void unicodeAndWhitespacePath()

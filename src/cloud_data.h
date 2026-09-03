@@ -4,8 +4,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <vector>
 
 #include <QString>
+#include <QStringList>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -71,12 +73,50 @@ struct CloudMetrics
   OrientedBounds oriented;
 };
 
+enum class CloudSourceKind
+{
+  Unknown,
+  Pcd,
+  Ply,
+  OdinMapBin,
+  OdinOlx
+};
+
+struct CloudFrameInfo
+{
+  std::uint32_t id = 0;
+  double timestamp_seconds = 0.0;
+  std::size_t point_offset = 0;
+  std::size_t point_count = 0;
+  std::size_t source_point_count = 0;
+};
+
+struct CloudImageFrameInfo
+{
+  std::uint32_t id = 0;
+  double timestamp_seconds = 0.0;
+  std::uint64_t payload_offset = 0;
+  std::uint32_t payload_size = 0;
+};
+
 struct CloudLoadResult
 {
   QString path;
   QString error;
   QString fields;
   QString encoding;
+  CloudSourceKind source_kind = CloudSourceKind::Unknown;
+  QString source_format;
+  QString source_details;
+  QString decoder;
+  QString session_root;
+  QString image_stream_path;
+  QStringList source_warnings;
+  QStringList image_paths;
+  std::vector<CloudFrameInfo> frames;
+  std::vector<CloudImageFrameInfo> image_frames;
+  std::size_t pose_frame_count = 0;
+  int olx_point_record_bytes = 0;
   std::uint64_t file_bytes = 0;
   CloudMetrics metrics;
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
@@ -84,6 +124,14 @@ struct CloudLoadResult
 
   bool ok() const { return error.isEmpty() && cloud && !cloud->empty(); }
 };
+
+CloudSourceKind detect_cloud_source_kind(const QString & path);
+QString cloud_source_kind_label(CloudSourceKind kind);
+bool is_supported_cloud_file(const QString & path);
+
+CloudLoadResult load_cloud_and_analyze(
+  const QString & path,
+  std::size_t maximum_display_points = 2500000);
 
 CloudLoadResult load_pcd_and_analyze(
   const QString & path,

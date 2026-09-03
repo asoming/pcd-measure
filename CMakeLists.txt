@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(pcd_measure VERSION 2.0.0 LANGUAGES C CXX)
+project(pcd_measure VERSION 2.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,6 +52,8 @@ add_executable(pcd_measure
   src/main.cpp
   src/main_window.cpp
   src/main_window.h
+  src/olx_capture_dialog.cpp
+  src/olx_capture_dialog.h
   src/plot_widget.cpp
   src/plot_widget.h
   src/rosbag_dialog.cpp
@@ -96,6 +98,15 @@ if(BUILD_TESTING)
       "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/tools"
       "${Python3_EXECUTABLE}" -m unittest discover
       -s "${CMAKE_CURRENT_SOURCE_DIR}/tests/rosbag_diag"
+      -p "test_*.py"
+  )
+
+  add_test(
+    NAME pcd_olx_record_python_test
+    COMMAND ${CMAKE_COMMAND} -E env
+      "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/tools"
+      "${Python3_EXECUTABLE}" -m unittest discover
+      -s "${CMAKE_CURRENT_SOURCE_DIR}/tests/olx_record"
       -p "test_*.py"
   )
 
@@ -214,6 +225,8 @@ if(BUILD_TESTING)
     tests/main_window_test.cpp
     src/main_window.cpp
     src/main_window.h
+    src/olx_capture_dialog.cpp
+    src/olx_capture_dialog.h
     src/plot_widget.cpp
     src/plot_widget.h
     src/rosbag_dialog.cpp

@@ -24,11 +24,11 @@ int main(int argc, char * argv[])
     maximum_display_points = static_cast<std::size_t>(parsed);
     path = arguments.at(3);
   } else {
-    std::cerr << "Usage: pcd_analyze [--max-display-points N] <cloud.pcd>\n";
+    std::cerr << "Usage: pcd_analyze [--max-display-points N] <cloud.pcd|cloud.ply|map.bin|recording.olx>\n";
     return 1;
   }
 
-  const CloudLoadResult result = load_pcd_and_analyze(path, maximum_display_points);
+  const CloudLoadResult result = load_cloud_and_analyze(path, maximum_display_points);
   std::cout << cloud_result_to_json(result).toStdString();
   return result.ok() ? 0 : 2;
 }

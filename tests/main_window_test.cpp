@@ -1,5 +1,6 @@
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -7,6 +8,7 @@
 
 #include <QApplication>
 #include <QAction>
+#include <QBuffer>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
@@ -42,6 +44,7 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QUrl>
+#include <QtEndian>
 
 #include <QVTKOpenGLNativeWidget.h>
 #include <vtkCamera.h>
@@ -89,6 +92,47 @@ private:
   static bool close_to(double actual, double expected, double tolerance)
   {
     return std::abs(actual - expected) <= tolerance;
+  }
+
+  static void append_u32(QByteArray & bytes, std::uint32_t value)
+  {
+    const quint32 little = qToLittleEndian<quint32>(value);
+    bytes.append(reinterpret_cast<const char *>(&little), sizeof(little));
+  }
+
+  static void append_float(QByteArray & bytes, float value)
+  {
+    quint32 bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    append_u32(bytes, bits);
+  }
+
+  static void append_double(QByteArray & bytes, double value)
+  {
+    quint64 bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    const quint64 little = qToLittleEndian<quint64>(bits);
+    bytes.append(reinterpret_cast<const char *>(&little), sizeof(little));
+  }
+
+  static QByteArray sequence_fixture()
+  {
+    QByteArray bytes;
+    for (std::uint32_t frame = 0; frame < 3; ++frame) {
+      append_u32(bytes, frame + 20);
+      append_double(bytes, 200.0 + frame * 0.1);
+      append_u32(bytes, 4);
+      for (std::uint32_t point = 0; point < 4; ++point) {
+        append_float(bytes, static_cast<float>(frame) + point * 0.2F);
+        append_float(bytes, point % 2 == 0 ? 0.0F : 1.0F);
+        append_float(bytes, point * 0.1F + frame * 0.05F);
+        bytes.append(static_cast<char>(30 + frame * 20));
+        bytes.append(static_cast<char>(80 + point * 10));
+        bytes.append(static_cast<char>(150 - point * 10));
+        bytes.append(static_cast<char>(255));
+      }
+    }
+    return bytes;
   }
 
   bool drive_modal(
@@ -247,6 +291,10 @@ private slots:
     QVERIFY(!window_->current_.metrics.has_rgba);
     QCOMPARE(window_->current_.metrics.non_black_points, std::size_t(0));
     QCOMPARE(window_->color_mode_combo_->currentIndex(), 1);
+    QVERIFY(!(window_->color_mode_combo_->model()->flags(
+      window_->color_mode_combo_->model()->index(0, 0)) & Qt::ItemIsEnabled));
+    QVERIFY(!(window_->color_mode_combo_->model()->flags(
+      window_->color_mode_combo_->model()->index(3, 0)) & Qt::ItemIsEnabled));
 
     const QString invalid = fixture_directory_ + QStringLiteral("/invalid_points_ascii.pcd");
     QVERIFY2(load(invalid), "Invalid-point fixture failed to load");
@@ -273,8 +321,127 @@ private slots:
     QCOMPARE(QFileInfo(window_->current_.path).fileName(), QStringLiteral("rgba_ascii.pcd"));
   }
 
+  void olxTimelinePlaybackAndCameraPreview()
+  {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString olx_path = directory.filePath(QStringLiteral("MT sequence.olx"));
+    QFile olx(olx_path);
+    QVERIFY(olx.open(QIODevice::WriteOnly));
+    const QByteArray sequence = sequence_fixture();
+    QCOMPARE(olx.write(sequence), static_cast<qint64>(sequence.size()));
+    olx.close();
+
+    QImage camera_image(8, 6, QImage::Format_RGB32);
+    camera_image.fill(QColor(QStringLiteral("#21D4D1")));
+    QByteArray png;
+    QBuffer png_buffer(&png);
+    QVERIFY(png_buffer.open(QIODevice::WriteOnly));
+    QVERIFY(camera_image.save(&png_buffer, "PNG"));
+    QByteArray image_stream;
+    for (std::uint32_t frame = 0; frame < 3; ++frame) {
+      append_u32(image_stream, frame + 30);
+      append_double(image_stream, 200.0 + frame * 0.1);
+      append_u32(image_stream, static_cast<std::uint32_t>(png.size()));
+      image_stream.append(png);
+    }
+    QFile image_file(directory.filePath(QStringLiteral("OdinImage.bin")));
+    QVERIFY(image_file.open(QIODevice::WriteOnly));
+    QCOMPARE(image_file.write(image_stream), static_cast<qint64>(image_stream.size()));
+    image_file.close();
+
+    QVERIFY2(load(olx_path), "OLX sequence fixture failed to load");
+    QCOMPARE(window_->current_.source_kind, CloudSourceKind::OdinOlx);
+    QCOMPARE(window_->current_.frames.size(), std::size_t(3));
+    QCOMPARE(window_->current_.metrics.finite_points, std::size_t(12));
+    QVERIFY(window_->sequence_strip_->isVisible());
+    QCOMPARE(window_->sequence_slider_->maximum(), 2);
+    QCOMPARE(window_->sequence_slider_->value(), 2);
+    QCOMPARE(window_->sequence_display_cloud_->size(), std::size_t(12));
+    QVERIFY(window_->source_badge_label_->text().contains(QStringLiteral("OLX")));
+    QVERIFY(window_->color_mode_combo_->model()->flags(
+      window_->color_mode_combo_->model()->index(3, 0)) & Qt::ItemIsEnabled);
+    QVERIFY(window_->camera_preview_check_->isEnabled());
+    QVERIFY(window_->camera_preview_frame_->isVisible());
+    QVERIFY(window_->camera_preview_label_->text().isEmpty());
+
+    window_->sequence_render_combo_->setCurrentIndex(1);
+    window_->sequence_slider_->setValue(1);
+    QCOMPARE(window_->sequence_display_cloud_->size(), std::size_t(4));
+    QVERIFY(window_->sequence_frame_label_->text().contains(QStringLiteral("2/3")));
+
+    window_->color_mode_combo_->setCurrentIndex(3);
+    QCOMPARE(window_->sequence_display_cloud_->size(), std::size_t(4));
+    QVERIFY(window_->sequence_display_cloud_->front().r != std::uint8_t(50));
+
+    window_->sequence_render_combo_->setCurrentIndex(0);
+    window_->sequence_infinite_check_->setChecked(false);
+    window_->sequence_max_frames_spin_->setValue(2);
+    window_->sequence_slider_->setValue(2);
+    QCOMPARE(window_->sequence_display_cloud_->size(), std::size_t(8));
+
+    window_->sequence_slider_->setValue(0);
+    window_->sequence_tick();
+    QCOMPARE(window_->sequence_slider_->value(), 1);
+    window_->stop_sequence_playback();
+
+    const QString olx_screenshot = QString::fromLocal8Bit(
+      qgetenv("PCD_MEASURE_TEST_OLX_SCREENSHOT"));
+    if (!olx_screenshot.isEmpty()) {
+      window_->resize(1540, 920);
+      QApplication::processEvents();
+      QVERIFY2(window_->grab().save(olx_screenshot, "PNG"), qPrintable(olx_screenshot));
+      QVERIFY(QFileInfo(olx_screenshot).size() > 1000);
+    }
+
+    const QJsonObject project = window_->build_project_state(
+      directory.filePath(QStringLiteral("sequence.pcdmeasure")));
+    const QJsonObject view = project.value(QStringLiteral("view")).toObject();
+    QCOMPARE(view.value(QStringLiteral("sequence_frame")).toInt(), 1);
+    QCOMPARE(view.value(QStringLiteral("sequence_render_mode")).toInt(), 0);
+
+    QMimeData mime;
+    mime.setUrls({QUrl::fromLocalFile(olx_path)});
+    QDragEnterEvent drag_event(
+      QPoint(20, 20), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(window_.get(), &drag_event);
+    QVERIFY(drag_event.isAccepted());
+  }
+
   void rosbagToolbarOpenAndDragDrop()
   {
+    auto * capture_action = window_->findChild<QAction *>(QStringLiteral("olxCaptureAction"));
+    QVERIFY(capture_action);
+    QVERIFY(capture_action->toolTip().contains(QStringLiteral("OLX")));
+    capture_action->trigger();
+    QTRY_VERIFY(window_->findChild<QDialog *>(QStringLiteral("olxCaptureDialog")));
+    auto * capture_dialog = window_->findChild<QDialog *>(QStringLiteral("olxCaptureDialog"));
+    auto * workspace = capture_dialog->findChild<QLineEdit *>(QStringLiteral("olxWorkspace"));
+    auto * topic_status = capture_dialog->findChild<QLabel *>(QStringLiteral("olxTopicStatus"));
+    auto * record_button = capture_dialog->findChild<QPushButton *>(QStringLiteral("olxRecordButton"));
+    auto * stop_button = capture_dialog->findChild<QPushButton *>(QStringLiteral("olxStopButton"));
+    QVERIFY(workspace);
+    QVERIFY(topic_status);
+    QVERIFY(record_button);
+    QVERIFY(stop_button);
+    QVERIFY(!stop_button->isEnabled());
+    QTRY_VERIFY_WITH_TIMEOUT(!topic_status->text().contains(QStringLiteral("检查中")), 6000);
+    const QString capture_screenshot = QString::fromLocal8Bit(
+      qgetenv("PCD_MEASURE_TEST_CAPTURE_SCREENSHOT"));
+    if (!capture_screenshot.isEmpty()) {
+      QApplication::processEvents();
+      QVERIFY2(capture_dialog->grab().save(capture_screenshot, "PNG"),
+        qPrintable(capture_screenshot));
+      QVERIFY(QFileInfo(capture_screenshot).size() > 1000);
+    }
+    QTemporaryDir invalid_workspace;
+    QVERIFY(invalid_workspace.isValid());
+    workspace->setText(invalid_workspace.path());
+    QVERIFY(QMetaObject::invokeMethod(capture_dialog, "refresh_status", Qt::DirectConnection));
+    QVERIFY(topic_status->text().contains(QStringLiteral("未构建")));
+    QVERIFY(!record_button->isEnabled());
+    capture_dialog->close();
+
     auto * action = window_->findChild<QAction *>(QStringLiteral("rosbagStudioAction"));
     QVERIFY(action);
     QVERIFY(action->toolTip().contains(QStringLiteral("ROS1/ROS2")));
@@ -540,7 +707,7 @@ private slots:
     QVERIFY(csv_text.contains(QStringLiteral("\"引号\"\"与逗号,转义\"")));
 
     const QString html = window_->build_report_html();
-    QVERIFY(html.contains(QStringLiteral("PCD 点云测量报告")));
+    QVERIFY(html.contains(QStringLiteral("点云测量报告")));
     QVERIFY(html.contains(QStringLiteral("多边形面积")));
     QVERIFY(html.contains(QStringLiteral("圆与直径")));
     QVERIFY(!html.contains(QRegularExpression(QStringLiteral("%[0-9]+"))));
@@ -1596,6 +1763,7 @@ private slots:
     QCOMPARE(window_->current_path_, window_->current_.path);
     QCOMPARE(window_->measurements_.size(), std::size_t(1));
     QVERIFY(window_->system_status_label_->text().contains(QStringLiteral("READY")));
+    QCOMPARE(window_->source_badge_label_->text(), QStringLiteral("LOAD ERROR"));
     QVERIFY(window_->pending_project_state_.isEmpty());
 
     const QString unsupported = directory.filePath(QStringLiteral("not-a-cloud.txt"));

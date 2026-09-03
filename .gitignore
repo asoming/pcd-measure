@@ -1,6 +1,8 @@
 # CMake build output
 build/
 .rosbag-venv/
+/tools/map_to_ply
+/tmp/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/

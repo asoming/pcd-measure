@@ -34,9 +34,12 @@ class QLineEdit;
 class QMenu;
 class QProgressBar;
 class QPushButton;
+class QFrame;
+class QSlider;
 class QSpinBox;
 class QTableWidget;
 class QTimer;
+class QToolButton;
 class QVTKOpenGLNativeWidget;
 class vtkGenericOpenGLRenderWindow;
 class vtkRenderer;
@@ -174,11 +177,16 @@ private slots:
   void save_project();
   void write_auto_recovery();
   void maybe_restore_auto_recovery();
+  void toggle_sequence_playback();
+  void sequence_position_changed(int index);
+  void sequence_render_mode_changed();
+  void sequence_tick();
 
 private:
   void build_interface();
   void initialize_viewer();
   void open_rosbag_dialog(const QString & path = QString());
+  void open_olx_capture_dialog();
   void begin_load(const QString & path);
   void render_cloud(bool reset_camera);
   void fill_information_panel();
@@ -271,6 +279,10 @@ private:
     double px, double py, double pz,
     double fx, double fy, double fz,
     double ux, double uy, double uz);
+  void configure_sequence_controls();
+  void rebuild_sequence_display();
+  void update_sequence_image();
+  void stop_sequence_playback();
 
   double unit_scale() const;
   QString unit_suffix() const;
@@ -314,6 +326,10 @@ private:
   QString current_path_;
 
   QLabel * viewer_hint_label_ = nullptr;
+  QLabel * source_badge_label_ = nullptr;
+  QLabel * source_format_label_ = nullptr;
+  QLabel * source_details_label_ = nullptr;
+  QLabel * decoder_label_ = nullptr;
   QLabel * file_name_label_ = nullptr;
   QLabel * file_path_label_ = nullptr;
   QLabel * file_size_label_ = nullptr;
@@ -357,12 +373,17 @@ private:
   QLabel * local_center_label_ = nullptr;
   QLabel * local_quality_label_ = nullptr;
   QLabel * system_status_label_ = nullptr;
+  QLabel * sequence_frame_label_ = nullptr;
+  QLabel * camera_preview_label_ = nullptr;
+  QLabel * camera_preview_title_ = nullptr;
 
   QComboBox * color_mode_combo_ = nullptr;
   QComboBox * background_combo_ = nullptr;
   QComboBox * projection_combo_ = nullptr;
   QComboBox * unit_combo_ = nullptr;
   QComboBox * interaction_mode_combo_ = nullptr;
+  QComboBox * sequence_render_combo_ = nullptr;
+  QComboBox * sequence_speed_combo_ = nullptr;
   QSpinBox * point_size_spin_ = nullptr;
   QSpinBox * display_limit_spin_ = nullptr;
   QCheckBox * axes_check_ = nullptr;
@@ -370,6 +391,13 @@ private:
   QCheckBox * bounds_check_ = nullptr;
   QCheckBox * context_cloud_check_ = nullptr;
   QCheckBox * measurement_labels_check_ = nullptr;
+  QCheckBox * sequence_infinite_check_ = nullptr;
+  QCheckBox * camera_preview_check_ = nullptr;
+  QFrame * sequence_strip_ = nullptr;
+  QFrame * camera_preview_frame_ = nullptr;
+  QSlider * sequence_slider_ = nullptr;
+  QToolButton * sequence_play_button_ = nullptr;
+  QSpinBox * sequence_max_frames_spin_ = nullptr;
   QTableWidget * measurement_table_ = nullptr;
   QLineEdit * measurement_search_edit_ = nullptr;
   QComboBox * measurement_type_filter_ = nullptr;
@@ -391,6 +419,7 @@ private:
   QAction * undo_transform_action_ = nullptr;
   QAction * save_project_action_ = nullptr;
   QTimer * auto_recovery_timer_ = nullptr;
+  QTimer * sequence_timer_ = nullptr;
 
   std::optional<pcl::PointXYZ> pending_point_;
   std::vector<pcl::PointXYZ> active_polyline_points_;
@@ -420,6 +449,7 @@ private:
   std::vector<std::string> active_shape_ids_;
   CropRegion crop_;
   pcl::KdTreeFLANN<pcl::PointXYZRGB>::Ptr picking_tree_;
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr sequence_display_cloud_;
   QJsonObject pending_project_state_;
   QString pending_project_path_;
   bool restoring_auto_recovery_ = false;

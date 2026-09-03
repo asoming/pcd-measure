@@ -34,6 +34,7 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -56,8 +57,10 @@
 #include <QSettings>
 #include <QShortcut>
 #include <QSizePolicy>
+#include <QSlider>
 #include <QSpinBox>
 #include <QStandardPaths>
+#include <QStandardItemModel>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QStyle>
@@ -88,6 +91,7 @@
 #include <pcl/io/pcd_io.h>
 
 #include "plot_widget.h"
+#include "olx_capture_dialog.h"
 #include "rosbag_dialog.h"
 #include "rosbag_tools.h"
 
@@ -304,7 +308,7 @@ MainWindow::MainWindow(QWidget * parent)
 : QMainWindow(parent)
 {
   setAcceptDrops(true);
-  setWindowTitle(QStringLiteral("PCD 点云测量工具"));
+  setWindowTitle(QStringLiteral("点云测量工具"));
   setMinimumSize(1100, 700);
   resize(1540, 920);
   picking_tree_ = pcl::make_shared<pcl::KdTreeFLANN<pcl::PointXYZRGB>>();
@@ -315,7 +319,7 @@ MainWindow::MainWindow(QWidget * parent)
   connect(&load_watcher_, &QFutureWatcher<CloudLoadResult>::finished,
     this, &MainWindow::load_finished);
 
-  statusBar()->showMessage(QStringLiteral("请选择或拖入一个 PCD 文件"));
+  statusBar()->showMessage(QStringLiteral("请选择或拖入 PCD、PLY、BIN 或 OLX 点云"));
   auto_recovery_timer_ = new QTimer(this);
   auto_recovery_timer_->setInterval(60000);
   connect(auto_recovery_timer_, &QTimer::timeout, this, &MainWindow::write_auto_recovery);
@@ -385,6 +389,10 @@ void MainWindow::build_interface()
     QStatusBar { background: #081924; color: #BBD0D8; border-top: 1px solid #183848; }
     QProgressBar { background: #0B1E2A; border: 1px solid #31546A; border-radius: 4px; }
     QProgressBar::chunk { background: #21D4D1; border-radius: 3px; }
+    QSlider::groove:horizontal { height: 5px; background: #193746; border-radius: 2px; }
+    QSlider::sub-page:horizontal { background: #21D4D1; border-radius: 2px; }
+    QSlider::handle:horizontal { width: 14px; margin: -5px 0; background: #E7FFFF; border: 2px solid #21D4D1; border-radius: 7px; }
+    QSlider::handle:horizontal:hover { background: #FFFFFF; border-color: #7CE4E1; }
     QToolTip { background: #142E3D; color: #EAF4F6; border: 1px solid #3A657A; padding: 5px; }
   )"));
 
@@ -394,9 +402,9 @@ void MainWindow::build_interface()
   toolbar->setIconSize(QSize(17, 17));
 
   QAction * open_action = toolbar->addAction(
-    style()->standardIcon(QStyle::SP_DialogOpenButton), QStringLiteral("打开 PCD"));
+    style()->standardIcon(QStyle::SP_DialogOpenButton), QStringLiteral("打开点云"));
   open_action->setShortcut(QKeySequence::Open);
-  open_action->setToolTip(QStringLiteral("选择一个 PCD 点云（Ctrl+O）"));
+  open_action->setToolTip(QStringLiteral("选择 PCD、PLY、MAP BIN 或 OLX（Ctrl+O）"));
   connect(open_action, &QAction::triggered, this, &MainWindow::choose_file);
   if (auto * button = qobject_cast<QToolButton *>(toolbar->widgetForAction(open_action))) {
     button->setProperty("role", "primary");
@@ -547,6 +555,12 @@ void MainWindow::build_interface()
   }
 
   toolbar->addSeparator();
+  QAction * capture_action = toolbar->addAction(
+    style()->standardIcon(QStyle::SP_DialogSaveButton), QStringLiteral("设备采集"));
+  capture_action->setObjectName(QStringLiteral("olxCaptureAction"));
+  capture_action->setToolTip(QStringLiteral("从 ROS2 点云话题录制 OLX，并在完成后直接打开"));
+  connect(capture_action, &QAction::triggered, this, &MainWindow::open_olx_capture_dialog);
+
   QAction * rosbag_action = toolbar->addAction(
     style()->standardIcon(QStyle::SP_MediaPlay), QStringLiteral("ROS Bag"));
   rosbag_action->setObjectName(QStringLiteral("rosbagStudioAction"));
@@ -580,10 +594,16 @@ void MainWindow::build_interface()
   auto * mode_strip_layout = new QHBoxLayout(mode_strip);
   mode_strip_layout->setContentsMargins(12, 6, 10, 6);
   mode_strip_layout->setSpacing(10);
-  auto * lab_mark = new QLabel(QStringLiteral("PCD // MEASURE CONSOLE"));
+  auto * lab_mark = new QLabel(QStringLiteral("CLOUD // MEASURE CONSOLE"));
   lab_mark->setStyleSheet(QStringLiteral(
     "font-family: 'DejaVu Sans Mono'; font-size: 10px; font-weight: 700; letter-spacing: 1px; color: #7CE4E1;"));
   mode_strip_layout->addWidget(lab_mark);
+  source_badge_label_ = new QLabel(QStringLiteral("NO SOURCE"));
+  source_badge_label_->setObjectName(QStringLiteral("sourceBadge"));
+  source_badge_label_->setStyleSheet(QStringLiteral(
+    "QLabel#sourceBadge { background: #0A1A25; color: #8DA8B5; border: 1px solid #29485C; "
+    "border-radius: 4px; padding: 3px 7px; font-family: 'DejaVu Sans Mono'; font-size: 9px; font-weight: 700; }"));
+  mode_strip_layout->addWidget(source_badge_label_);
   interaction_mode_combo_ = new WheelSafeComboBox;
   interaction_mode_combo_->addItems({
     QStringLiteral("两点测距"),
@@ -599,7 +619,7 @@ void MainWindow::build_interface()
     this, &MainWindow::interaction_mode_changed);
   mode_strip_layout->addWidget(interaction_mode_combo_);
   viewer_hint_label_ = new QLabel(
-    QStringLiteral("打开或拖入 PCD 文件；加载后按 Shift + 左键选择点"));
+    QStringLiteral("打开或拖入点云；加载后按 Shift + 左键选择点"));
   viewer_hint_label_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
   mode_strip_layout->addWidget(viewer_hint_label_, 1);
   system_status_label_ = new QLabel(QStringLiteral("● READY"));
@@ -608,10 +628,105 @@ void MainWindow::build_interface()
   mode_strip_layout->addWidget(system_status_label_);
   viewer_layout->addWidget(mode_strip);
 
+  sequence_strip_ = new QFrame;
+  sequence_strip_->setObjectName(QStringLiteral("sequenceStrip"));
+  sequence_strip_->setStyleSheet(QStringLiteral(
+    "QFrame#sequenceStrip { background: #0B202C; border: 1px solid #35566A; "
+    "border-left: 4px solid #FFB547; border-radius: 6px; }"
+    "QLabel { color: #CFE0E6; }"
+    "QToolButton { background: #16394A; color: #F6FFFF; border: 1px solid #3A6C82; "
+    "border-radius: 5px; min-width: 27px; min-height: 25px; }"
+    "QToolButton:hover { border-color: #21D4D1; background: #1C4A5E; }"));
+  auto * sequence_layout = new QHBoxLayout(sequence_strip_);
+  sequence_layout->setContentsMargins(10, 5, 9, 5);
+  sequence_layout->setSpacing(7);
+  auto * sequence_mark = new QLabel(QStringLiteral("OLX ▸ DECODE ▸ CLOUD ▸ MEASURE"));
+  sequence_mark->setStyleSheet(QStringLiteral(
+    "font-family: 'DejaVu Sans Mono'; color: #FFCA72; font-size: 9px; font-weight: 700; letter-spacing: 0.5px;"));
+  sequence_layout->addWidget(sequence_mark);
+  sequence_play_button_ = new QToolButton;
+  sequence_play_button_->setText(QStringLiteral("▶"));
+  sequence_play_button_->setToolTip(QStringLiteral("播放 / 暂停 OLX 帧"));
+  connect(sequence_play_button_, &QToolButton::clicked, this, &MainWindow::toggle_sequence_playback);
+  sequence_layout->addWidget(sequence_play_button_);
+  sequence_render_combo_ = new WheelSafeComboBox;
+  sequence_render_combo_->addItems({QStringLiteral("累计"), QStringLiteral("单帧")});
+  sequence_render_combo_->setToolTip(QStringLiteral("累计显示或只显示当前帧"));
+  connect(sequence_render_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    this, &MainWindow::sequence_render_mode_changed);
+  sequence_layout->addWidget(sequence_render_combo_);
+  sequence_infinite_check_ = new QCheckBox(QStringLiteral("全部帧"));
+  sequence_infinite_check_->setChecked(true);
+  connect(sequence_infinite_check_, &QCheckBox::toggled,
+    this, &MainWindow::sequence_render_mode_changed);
+  sequence_layout->addWidget(sequence_infinite_check_);
+  sequence_max_frames_spin_ = new QSpinBox;
+  sequence_max_frames_spin_->setRange(1, 10000);
+  sequence_max_frames_spin_->setValue(150);
+  sequence_max_frames_spin_->setPrefix(QStringLiteral("窗口 "));
+  sequence_max_frames_spin_->setSuffix(QStringLiteral(" 帧"));
+  sequence_max_frames_spin_->setEnabled(false);
+  connect(sequence_max_frames_spin_, QOverload<int>::of(&QSpinBox::valueChanged),
+    this, &MainWindow::sequence_render_mode_changed);
+  sequence_layout->addWidget(sequence_max_frames_spin_);
+  sequence_slider_ = new QSlider(Qt::Horizontal);
+  sequence_slider_->setMinimumWidth(180);
+  connect(sequence_slider_, &QSlider::valueChanged, this, &MainWindow::sequence_position_changed);
+  sequence_layout->addWidget(sequence_slider_, 1);
+  sequence_speed_combo_ = new WheelSafeComboBox;
+  sequence_speed_combo_->addItem(QStringLiteral("0.25×"), 0.25);
+  sequence_speed_combo_->addItem(QStringLiteral("0.5×"), 0.5);
+  sequence_speed_combo_->addItem(QStringLiteral("1×"), 1.0);
+  sequence_speed_combo_->addItem(QStringLiteral("2×"), 2.0);
+  sequence_speed_combo_->addItem(QStringLiteral("4×"), 4.0);
+  sequence_speed_combo_->setCurrentIndex(2);
+  sequence_layout->addWidget(sequence_speed_combo_);
+  sequence_frame_label_ = new QLabel(QStringLiteral("FRAME —"));
+  sequence_frame_label_->setStyleSheet(QStringLiteral(
+    "font-family: 'DejaVu Sans Mono'; color: #7CE4E1; font-weight: 700;"));
+  sequence_layout->addWidget(sequence_frame_label_);
+  camera_preview_check_ = new QCheckBox(QStringLiteral("相机"));
+  connect(camera_preview_check_, &QCheckBox::toggled, this,
+    [this](bool visible) {
+      const bool has_images = !current_.image_frames.empty() || !current_.image_paths.isEmpty();
+      if (camera_preview_frame_) camera_preview_frame_->setVisible(visible && has_images);
+      update_sequence_image();
+    });
+  sequence_layout->addWidget(camera_preview_check_);
+  sequence_strip_->hide();
+  viewer_layout->addWidget(sequence_strip_);
+
   vtk_widget_ = new QVTKOpenGLNativeWidget;
   vtk_widget_->setMinimumSize(600, 480);
   vtk_widget_->setFocusPolicy(Qt::StrongFocus);
-  viewer_layout->addWidget(vtk_widget_, 1);
+  auto * viewer_canvas = new QWidget;
+  auto * viewer_canvas_layout = new QGridLayout(viewer_canvas);
+  viewer_canvas_layout->setContentsMargins(0, 0, 0, 0);
+  viewer_canvas_layout->addWidget(vtk_widget_, 0, 0);
+  camera_preview_frame_ = new QFrame;
+  camera_preview_frame_->setObjectName(QStringLiteral("cameraPreview"));
+  camera_preview_frame_->setFixedSize(300, 220);
+  camera_preview_frame_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  camera_preview_frame_->setStyleSheet(QStringLiteral(
+    "QFrame#cameraPreview { background: rgba(6, 17, 25, 225); border: 1px solid #3B7189; "
+    "border-top: 3px solid #21D4D1; border-radius: 6px; }"));
+  auto * preview_layout = new QVBoxLayout(camera_preview_frame_);
+  preview_layout->setContentsMargins(7, 5, 7, 7);
+  preview_layout->setSpacing(4);
+  camera_preview_title_ = new QLabel(QStringLiteral("CAMERA // NO FRAME"));
+  camera_preview_title_->setStyleSheet(QStringLiteral(
+    "font-family: 'DejaVu Sans Mono'; color: #7CE4E1; font-size: 9px; font-weight: 700;"));
+  preview_layout->addWidget(camera_preview_title_);
+  camera_preview_label_ = new QLabel(QStringLiteral("无配套图像"));
+  camera_preview_label_->setAlignment(Qt::AlignCenter);
+  camera_preview_label_->setStyleSheet(QStringLiteral("background: #050C12; color: #6F8996;"));
+  preview_layout->addWidget(camera_preview_label_, 1);
+  camera_preview_frame_->hide();
+  viewer_canvas_layout->addWidget(camera_preview_frame_, 0, 0, Qt::AlignLeft | Qt::AlignTop);
+  viewer_layout->addWidget(viewer_canvas, 1);
+
+  sequence_timer_ = new QTimer(this);
+  connect(sequence_timer_, &QTimer::timeout, this, &MainWindow::sequence_tick);
   splitter->addWidget(viewer_panel);
 
   auto * scroll_area = new QScrollArea;
@@ -633,11 +748,17 @@ void MainWindow::build_interface()
   file_path_label_ = make_value_label();
   file_path_label_->setTextInteractionFlags(Qt::TextSelectableByMouse);
   file_size_label_ = make_value_label();
+  source_format_label_ = make_value_label(true);
+  source_details_label_ = make_value_label();
+  decoder_label_ = make_value_label();
   encoding_label_ = make_value_label();
   fields_label_ = make_value_label();
   file_form->addRow(QStringLiteral("文件："), file_name_label_);
   file_form->addRow(QStringLiteral("路径："), file_path_label_);
   file_form->addRow(QStringLiteral("大小："), file_size_label_);
+  file_form->addRow(QStringLiteral("来源："), source_format_label_);
+  file_form->addRow(QStringLiteral("详情："), source_details_label_);
+  file_form->addRow(QStringLiteral("解码："), decoder_label_);
   file_form->addRow(QStringLiteral("编码："), encoding_label_);
   file_form->addRow(QStringLiteral("字段："), fields_label_);
   side_layout->addWidget(file_group);
@@ -883,7 +1004,8 @@ void MainWindow::build_interface()
   color_mode_combo_->addItems({
     QStringLiteral("RGB 原始颜色"),
     QStringLiteral("按高度渐变"),
-    QStringLiteral("浅蓝单色")});
+    QStringLiteral("浅蓝单色"),
+    QStringLiteral("按帧标签着色")});
   connect(color_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
     this, &MainWindow::apply_color_mode);
   point_size_spin_ = new QSpinBox;
@@ -905,6 +1027,7 @@ void MainWindow::build_interface()
       if (!current_.ok()) return;
       rebuild_current_display_cloud(static_cast<std::size_t>(value));
       if (crop_.active) rebuild_crop_display_cloud(static_cast<std::size_t>(value));
+      if (current_.source_kind == CloudSourceKind::OdinOlx) rebuild_sequence_display();
       render_cloud(false);
       update_crop_information();
       statusBar()->showMessage(QStringLiteral("显示点上限已更新；统计仍使用完整点云。"), 5000);
@@ -1025,6 +1148,19 @@ void MainWindow::open_rosbag_dialog(const QString & path)
   dialog->activateWindow();
 }
 
+void MainWindow::open_olx_capture_dialog()
+{
+  auto * dialog = new OlxCaptureDialog(this);
+  connect(dialog, &OlxCaptureDialog::openOlxRequested, this, [this](const QString & path) {
+    pending_project_state_ = QJsonObject{};
+    pending_project_path_.clear();
+    begin_load(path);
+  });
+  dialog->show();
+  dialog->raise();
+  dialog->activateWindow();
+}
+
 void MainWindow::choose_file()
 {
   QSettings settings;
@@ -1034,8 +1170,11 @@ void MainWindow::choose_file()
   }
 
   const QString path = QFileDialog::getOpenFileName(
-    this, QStringLiteral("选择 PCD 点云"), initial_directory,
-    QStringLiteral("PCD 点云 (*.pcd);;所有文件 (*)"));
+    this, QStringLiteral("选择点云或录制文件"), initial_directory,
+    QStringLiteral(
+      "支持的点云 (*.pcd *.ply *.bin *.olx);;"
+      "PCD 点云 (*.pcd);;PLY 点云 (*.ply);;"
+      "MAPV0001 地图 (*.bin);;OLX 多帧录制 (*.olx);;所有文件 (*)"));
   if (!path.isEmpty()) {
     pending_project_state_ = QJsonObject{};
     pending_project_path_.clear();
@@ -1143,18 +1282,27 @@ void MainWindow::begin_load(const QString & path)
       QStringLiteral("找不到文件：\n%1").arg(path));
     return;
   }
-  if (info.suffix().compare(QStringLiteral("pcd"), Qt::CaseInsensitive) != 0) {
+  if (!is_supported_cloud_file(info.absoluteFilePath())) {
     QMessageBox::warning(this, QStringLiteral("格式不支持"),
-      QStringLiteral("请选择扩展名为 .pcd 的点云文件。"));
+      info.suffix().compare(QStringLiteral("bin"), Qt::CaseInsensitive) == 0 ?
+      QStringLiteral(
+        "该 BIN 不是 MAPV0001 点云地图。OdinPose.bin / OdinImage.bin 是 OLX 配套文件，"
+        "请打开同目录中的 .olx 主文件。") :
+      QStringLiteral("当前支持 PCD、PLY、MAPV0001 BIN 和 OLX 点云。"));
     return;
   }
 
+  stop_sequence_playback();
   current_path_ = info.absoluteFilePath();
   QSettings().setValue(QStringLiteral("lastDirectory"), info.absolutePath());
   load_timer_.restart();
   file_name_label_->setText(QStringLiteral("%1  ·  加载中").arg(info.fileName()));
   file_path_label_->setText(info.absolutePath());
-  setWindowTitle(QStringLiteral("正在加载 %1 — PCD 点云测量工具").arg(info.fileName()));
+  setWindowTitle(QStringLiteral("正在加载 %1 — 点云测量工具").arg(info.fileName()));
+  source_badge_label_->setText(QStringLiteral("LOADING"));
+  source_badge_label_->setStyleSheet(QStringLiteral(
+    "QLabel#sourceBadge { background: #2C2415; color: #FFCA72; border: 1px solid #8A6933; "
+    "border-radius: 4px; padding: 3px 7px; font-family: 'DejaVu Sans Mono'; font-size: 9px; font-weight: 700; }"));
   set_loading(true, QStringLiteral("正在读取并分析 %1 …").arg(info.fileName()));
 
   const QString worker_path = current_path_;
@@ -1162,7 +1310,7 @@ void MainWindow::begin_load(const QString & path)
     static_cast<std::size_t>(display_limit_spin_->value()) : 750000;
   load_watcher_.setFuture(QtConcurrent::run([worker_path, maximum_display_points]() {
     try {
-      return load_pcd_and_analyze(worker_path, maximum_display_points);
+      return load_cloud_and_analyze(worker_path, maximum_display_points);
     } catch (const std::exception & error) {
       CloudLoadResult result;
       result.path = worker_path;
@@ -1198,10 +1346,17 @@ void MainWindow::load_finished()
     save_project_action_->setEnabled(has_cloud);
     if (has_cloud) {
       fill_information_panel();
-      setWindowTitle(QStringLiteral("%1 — PCD 点云测量工具")
+      setWindowTitle(QStringLiteral("%1 — 点云测量工具")
         .arg(QFileInfo(current_.path).fileName()));
     }
-    QMessageBox::critical(this, QStringLiteral("PCD 加载失败"), result.error);
+    source_badge_label_->setText(has_cloud ? QStringLiteral("LOAD ERROR") : QStringLiteral("NO SOURCE"));
+    source_badge_label_->setStyleSheet(QStringLiteral(
+      "QLabel#sourceBadge { background: %1; color: %2; border: 1px solid %3; "
+      "border-radius: 4px; padding: 3px 7px; font-family: 'DejaVu Sans Mono'; font-size: 9px; font-weight: 700; }")
+      .arg(has_cloud ? QStringLiteral("#332816") : QStringLiteral("#32191B"))
+      .arg(has_cloud ? QStringLiteral("#FFCA72") : QStringLiteral("#FF9A91"))
+      .arg(has_cloud ? QStringLiteral("#9B7130") : QStringLiteral("#8B3B40")));
+    QMessageBox::critical(this, QStringLiteral("点云加载失败"), result.error);
     system_status_label_->setText(has_cloud ?
       QStringLiteral("● READY · LOAD ERROR") : QStringLiteral("● ERROR"));
     system_status_label_->setStyleSheet(QStringLiteral(
@@ -1231,6 +1386,7 @@ void MainWindow::load_finished()
   bounds_shape_ids_.clear();
   crop_shape_ids_.clear();
   crop_ = CropRegion{};
+  sequence_display_cloud_.reset();
 
   current_ = result;
   current_path_ = result.path;
@@ -1239,13 +1395,22 @@ void MainWindow::load_finished()
   color_mode_combo_->setCurrentIndex(
     (result.metrics.has_rgb || result.metrics.has_rgba) ? 0 : 1);
   color_mode_combo_->blockSignals(false);
+  if (auto * color_model = qobject_cast<QStandardItemModel *>(color_mode_combo_->model())) {
+    if (color_model->item(0)) {
+      color_model->item(0)->setEnabled(result.metrics.has_rgb || result.metrics.has_rgba);
+    }
+    if (color_model->item(3)) {
+      color_model->item(3)->setEnabled(result.source_kind == CloudSourceKind::OdinOlx);
+    }
+  }
 
   fill_information_panel();
+  update_crop_information();
+  configure_sequence_controls();
   render_cloud(true);
   toggle_axes(axes_check_->isChecked());
   update_grid_overlay();
   update_bounds_overlay();
-  update_crop_information();
 
   reload_action_->setEnabled(true);
   screenshot_action_->setEnabled(true);
@@ -1258,7 +1423,20 @@ void MainWindow::load_finished()
   save_project_action_->setEnabled(true);
   add_recent_file(result.path);
   interaction_mode_changed(interaction_mode_combo_->currentIndex());
-  setWindowTitle(QStringLiteral("%1 — PCD 点云测量工具").arg(QFileInfo(result.path).fileName()));
+  setWindowTitle(QStringLiteral("%1 — 点云测量工具").arg(QFileInfo(result.path).fileName()));
+  QString source_badge = QStringLiteral("POINT CLOUD");
+  if (result.source_kind == CloudSourceKind::Pcd) source_badge = QStringLiteral("PCD");
+  if (result.source_kind == CloudSourceKind::Ply) source_badge = QStringLiteral("PLY");
+  if (result.source_kind == CloudSourceKind::OdinMapBin) source_badge = QStringLiteral("MAP BIN");
+  if (result.source_kind == CloudSourceKind::OdinOlx) source_badge = QStringLiteral("OLX · SLAM");
+  source_badge_label_->setText(source_badge);
+  const bool sequence_source = result.source_kind == CloudSourceKind::OdinOlx;
+  source_badge_label_->setStyleSheet(QStringLiteral(
+    "QLabel#sourceBadge { background: %1; color: %2; border: 1px solid %3; "
+    "border-radius: 4px; padding: 3px 7px; font-family: 'DejaVu Sans Mono'; font-size: 9px; font-weight: 700; }")
+    .arg(sequence_source ? QStringLiteral("#332816") : QStringLiteral("#0A2932"))
+    .arg(sequence_source ? QStringLiteral("#FFCA72") : QStringLiteral("#7CE4E1"))
+    .arg(sequence_source ? QStringLiteral("#9B7130") : QStringLiteral("#2A7E82")));
   system_status_label_->setText(QStringLiteral("● READY"));
   system_status_label_->setStyleSheet(QStringLiteral(
     "font-family: 'DejaVu Sans Mono'; color: #55D69E; font-weight: 700;"));
@@ -1285,6 +1463,16 @@ void MainWindow::fill_information_panel()
   file_path_label_->setText(info.absolutePath());
   file_path_label_->setToolTip(current_.path);
   file_size_label_->setText(bytes_text(current_.file_bytes));
+  source_format_label_->setText(current_.source_format);
+  QString source_details = current_.source_details;
+  if (!current_.source_warnings.isEmpty()) {
+    if (!source_details.isEmpty()) source_details += QStringLiteral("\n");
+    source_details += QStringLiteral("⚠ ") + current_.source_warnings.join(QStringLiteral("\n⚠ "));
+  }
+  source_details_label_->setText(source_details.isEmpty() ? QStringLiteral("标准点云文件") : source_details);
+  source_details_label_->setStyleSheet(current_.source_warnings.isEmpty() ? QString() :
+    QStringLiteral("color: #FFCA72;"));
+  decoder_label_->setText(current_.decoder.isEmpty() ? QStringLiteral("内置读取器") : current_.decoder);
   encoding_label_->setText(current_.encoding);
   fields_label_->setText(current_.fields);
 
@@ -1373,7 +1561,9 @@ void MainWindow::render_cloud(bool reset_camera)
   viewer_->removePointCloud(kCloudId);
   bool added = false;
   const int mode = color_mode_combo_->currentIndex();
-  if (mode == 0 && (current_.metrics.has_rgb || current_.metrics.has_rgba)) {
+  if ((mode == 0 && (current_.metrics.has_rgb || current_.metrics.has_rgba)) ||
+    (mode == 3 && current_.source_kind == CloudSourceKind::OdinOlx))
+  {
     pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> handler(
       cloud_to_render);
     added = viewer_->addPointCloud<pcl::PointXYZRGB>(
@@ -1433,7 +1623,228 @@ void MainWindow::render_context_cloud()
 
 void MainWindow::apply_color_mode()
 {
+  if (current_.source_kind == CloudSourceKind::OdinOlx) {
+    rebuild_sequence_display();
+  }
   render_cloud(false);
+}
+
+void MainWindow::configure_sequence_controls()
+{
+  stop_sequence_playback();
+  const bool available = current_.source_kind == CloudSourceKind::OdinOlx &&
+    !current_.frames.empty();
+  sequence_strip_->setVisible(available);
+  if (!available) {
+    sequence_display_cloud_.reset();
+    camera_preview_frame_->hide();
+    return;
+  }
+
+  const int last_index = static_cast<int>(std::min<std::size_t>(
+    current_.frames.size() - 1,
+    static_cast<std::size_t>(std::numeric_limits<int>::max())));
+  sequence_slider_->blockSignals(true);
+  sequence_slider_->setRange(0, last_index);
+  sequence_slider_->setValue(last_index);
+  sequence_slider_->blockSignals(false);
+  sequence_render_combo_->setCurrentIndex(0);
+  sequence_infinite_check_->setChecked(true);
+  sequence_infinite_check_->setEnabled(true);
+  sequence_max_frames_spin_->setEnabled(false);
+
+  const bool has_images = !current_.image_frames.empty() || !current_.image_paths.isEmpty();
+  camera_preview_check_->setEnabled(has_images);
+  camera_preview_check_->setChecked(has_images);
+  camera_preview_frame_->setVisible(has_images);
+  rebuild_sequence_display();
+}
+
+void MainWindow::rebuild_sequence_display()
+{
+  if (current_.source_kind != CloudSourceKind::OdinOlx || current_.frames.empty() ||
+    !current_.cloud || !sequence_slider_)
+  {
+    sequence_display_cloud_.reset();
+    return;
+  }
+
+  const int current_index = std::clamp(
+    sequence_slider_->value(), 0, static_cast<int>(current_.frames.size() - 1));
+  const bool single_frame = sequence_render_combo_->currentIndex() == 1;
+  int first_index = single_frame ? current_index : 0;
+  if (!single_frame && !sequence_infinite_check_->isChecked()) {
+    first_index = std::max(0, current_index - sequence_max_frames_spin_->value() + 1);
+  }
+
+  std::size_t selected_points = 0;
+  for (int index = first_index; index <= current_index; ++index) {
+    selected_points += current_.frames[static_cast<std::size_t>(index)].point_count;
+  }
+  const std::size_t display_limit = display_limit_spin_ ?
+    static_cast<std::size_t>(display_limit_spin_->value()) : 750000U;
+  const std::size_t stride = std::max<std::size_t>(1,
+    static_cast<std::size_t>(std::ceil(
+      static_cast<double>(selected_points) / static_cast<double>(display_limit))));
+
+  sequence_display_cloud_ = pcl::make_shared<pcl::PointCloud<pcl::PointXYZRGB>>();
+  sequence_display_cloud_->reserve(std::min(selected_points, display_limit));
+  std::size_t ordinal = 0;
+  const bool color_by_frame = color_mode_combo_ && color_mode_combo_->currentIndex() == 3;
+  for (int index = first_index; index <= current_index; ++index) {
+    const CloudFrameInfo & frame = current_.frames[static_cast<std::size_t>(index)];
+    const std::size_t end = std::min(current_.cloud->size(), frame.point_offset + frame.point_count);
+    const QColor frame_color = QColor::fromHsv(
+      static_cast<int>((static_cast<std::uint64_t>(frame.id) * 137U) % 360U), 190, 245);
+    for (std::size_t point_index = frame.point_offset; point_index < end;
+      ++point_index, ++ordinal)
+    {
+      if (ordinal % stride != 0) continue;
+      pcl::PointXYZRGB point = (*current_.cloud)[point_index];
+      if (color_by_frame) {
+        point.r = static_cast<std::uint8_t>(frame_color.red());
+        point.g = static_cast<std::uint8_t>(frame_color.green());
+        point.b = static_cast<std::uint8_t>(frame_color.blue());
+      }
+      sequence_display_cloud_->push_back(point);
+    }
+  }
+  sequence_display_cloud_->width = static_cast<std::uint32_t>(sequence_display_cloud_->size());
+  sequence_display_cloud_->height = 1;
+  sequence_display_cloud_->is_dense = true;
+
+  const CloudFrameInfo & frame = current_.frames[static_cast<std::size_t>(current_index)];
+  const double relative_seconds = frame.timestamp_seconds - current_.frames.front().timestamp_seconds;
+  sequence_frame_label_->setText(
+    QStringLiteral("FRAME %1 · %2/%3 · +%4 s")
+      .arg(frame.id)
+      .arg(current_index + 1)
+      .arg(static_cast<qulonglong>(current_.frames.size()))
+      .arg(relative_seconds, 0, 'f', 2));
+  sequence_frame_label_->setToolTip(
+    QStringLiteral("当前帧 %1 点；显示区间 %2–%3，共 %4 点")
+      .arg(count_text(frame.point_count))
+      .arg(first_index + 1)
+      .arg(current_index + 1)
+      .arg(count_text(selected_points)));
+  displayed_points_label_->setText(
+    QStringLiteral("%1 / %2（OLX 帧 %3–%4；统计用全量）")
+      .arg(count_text(sequence_display_cloud_->size()))
+      .arg(count_text(selected_points))
+      .arg(first_index + 1)
+      .arg(current_index + 1));
+  update_sequence_image();
+}
+
+void MainWindow::update_sequence_image()
+{
+  if (!camera_preview_label_ || !camera_preview_check_ ||
+    !camera_preview_check_->isChecked() || current_.frames.empty())
+  {
+    if (camera_preview_frame_) camera_preview_frame_->hide();
+    return;
+  }
+
+  const int cloud_index = std::clamp(
+    sequence_slider_->value(), 0, static_cast<int>(current_.frames.size() - 1));
+  const double cloud_time = current_.frames[static_cast<std::size_t>(cloud_index)].timestamp_seconds;
+  QImage image;
+  QString title;
+
+  if (!current_.image_frames.empty() && !current_.image_stream_path.isEmpty()) {
+    std::size_t best = 0;
+    double best_delta = std::numeric_limits<double>::infinity();
+    for (std::size_t index = 0; index < current_.image_frames.size(); ++index) {
+      const double delta = std::abs(current_.image_frames[index].timestamp_seconds - cloud_time);
+      if (delta < best_delta) {
+        best = index;
+        best_delta = delta;
+      }
+    }
+    const CloudImageFrameInfo & frame = current_.image_frames[best];
+    QFile stream(current_.image_stream_path);
+    if (stream.open(QIODevice::ReadOnly) &&
+      stream.seek(static_cast<qint64>(frame.payload_offset)))
+    {
+      image = QImage::fromData(stream.read(frame.payload_size));
+    }
+    title = QStringLiteral("CAMERA %1 · Δt %2 ms")
+      .arg(frame.id).arg(best_delta * 1000.0, 0, 'f', 1);
+  } else if (!current_.image_paths.isEmpty()) {
+    const int image_index = current_.frames.size() <= 1 ? 0 :
+      static_cast<int>(std::llround(
+        static_cast<double>(cloud_index) * (current_.image_paths.size() - 1) /
+        static_cast<double>(current_.frames.size() - 1)));
+    image.load(current_.image_paths.at(std::clamp(image_index, 0, current_.image_paths.size() - 1)));
+    title = QStringLiteral("CAMERA %1/%2")
+      .arg(image_index + 1).arg(current_.image_paths.size());
+  }
+
+  camera_preview_title_->setText(title.isEmpty() ? QStringLiteral("CAMERA // NO FRAME") : title);
+  if (image.isNull()) {
+    camera_preview_label_->setPixmap(QPixmap());
+    camera_preview_label_->setText(QStringLiteral("相机帧不是 JPEG/PNG\n可能为原始 NV12 数据"));
+  } else {
+    camera_preview_label_->setText(QString());
+    camera_preview_label_->setPixmap(QPixmap::fromImage(image).scaled(
+      QSize(284, 182), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+  }
+  camera_preview_frame_->show();
+}
+
+void MainWindow::stop_sequence_playback()
+{
+  if (sequence_timer_) sequence_timer_->stop();
+  if (sequence_play_button_) sequence_play_button_->setText(QStringLiteral("▶"));
+}
+
+void MainWindow::toggle_sequence_playback()
+{
+  if (!sequence_timer_ || current_.frames.empty()) return;
+  if (sequence_timer_->isActive()) {
+    stop_sequence_playback();
+    return;
+  }
+  if (sequence_slider_->value() >= sequence_slider_->maximum()) {
+    sequence_slider_->setValue(0);
+  }
+  sequence_play_button_->setText(QStringLiteral("Ⅱ"));
+  sequence_timer_->start(1);
+}
+
+void MainWindow::sequence_position_changed(int)
+{
+  rebuild_sequence_display();
+  render_cloud(false);
+}
+
+void MainWindow::sequence_render_mode_changed()
+{
+  if (!sequence_render_combo_) return;
+  const bool accumulated = sequence_render_combo_->currentIndex() == 0;
+  sequence_infinite_check_->setEnabled(accumulated);
+  sequence_max_frames_spin_->setEnabled(accumulated && !sequence_infinite_check_->isChecked());
+  rebuild_sequence_display();
+  render_cloud(false);
+}
+
+void MainWindow::sequence_tick()
+{
+  if (current_.frames.empty() || sequence_slider_->value() >= sequence_slider_->maximum()) {
+    stop_sequence_playback();
+    return;
+  }
+  const int next = sequence_slider_->value() + 1;
+  sequence_slider_->setValue(next);
+  if (next >= sequence_slider_->maximum()) {
+    stop_sequence_playback();
+    return;
+  }
+  const double speed = std::max(0.01, sequence_speed_combo_->currentData().toDouble());
+  const double delta = current_.frames[static_cast<std::size_t>(next + 1)].timestamp_seconds -
+    current_.frames[static_cast<std::size_t>(next)].timestamp_seconds;
+  sequence_timer_->setInterval(std::clamp(
+    static_cast<int>(std::llround(std::max(0.0, delta) * 1000.0 / speed)), 15, 1000));
 }
 
 void MainWindow::apply_background_mode(int index)
@@ -3419,7 +3830,7 @@ void MainWindow::show_outlier_filter()
   form->addRow(QStringLiteral("邻域点数 Mean K："), mean_k);
   form->addRow(QStringLiteral("标准差倍数："), multiplier);
   layout->addLayout(form);
-  auto * note = new QLabel(QStringLiteral("先预览移除数量，再决定显示或导出；源 PCD 不会被覆盖。"));
+  auto * note = new QLabel(QStringLiteral("先预览移除数量，再决定显示或导出；源点云不会被覆盖。"));
   note->setWordWrap(true);
   layout->addWidget(note);
   auto * buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
@@ -3713,8 +4124,8 @@ void MainWindow::open_cloud_comparison()
   connect(browse, &QPushButton::clicked, &dialog, [this, path_edit]() {
     const QString initial = path_edit->text().isEmpty() ? QFileInfo(current_.path).absolutePath() :
       QFileInfo(path_edit->text()).absolutePath();
-    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("选择第二个 PCD"),
-      initial, QStringLiteral("PCD 点云 (*.pcd)"));
+    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("选择第二个点云"),
+      initial, QStringLiteral("支持的点云 (*.pcd *.ply *.bin *.olx);;所有文件 (*)"));
     if (!path.isEmpty()) path_edit->setText(path);
   });
   const auto update_icp_controls = [=](bool enabled) {
@@ -3729,11 +4140,10 @@ void MainWindow::open_cloud_comparison()
   if (dialog.exec() != QDialog::Accepted) return;
 
   const QString second_path = QFileInfo(path_edit->text().trimmed()).absoluteFilePath();
-  if (!QFileInfo::exists(second_path) ||
-    QFileInfo(second_path).suffix().compare(QStringLiteral("pcd"), Qt::CaseInsensitive) != 0)
+  if (!QFileInfo::exists(second_path) || !is_supported_cloud_file(second_path))
   {
     QMessageBox::warning(this, QStringLiteral("第二点云无效"),
-      QStringLiteral("请选择一个存在的 .pcd 文件。"));
+      QStringLiteral("请选择存在且受支持的 PCD、PLY、MAP BIN 或 OLX 文件。"));
     return;
   }
   CloudComparisonOptions options;
@@ -3755,7 +4165,7 @@ void MainWindow::open_cloud_comparison()
   const ComparisonJobOutput output = run_progress_task<ComparisonJobOutput>(
     this, QStringLiteral("双点云配准与差异"), [reference, second_path, options]() {
       ComparisonJobOutput job;
-      job.second = load_pcd_and_analyze(second_path, options.maximum_display_points);
+      job.second = load_cloud_and_analyze(second_path, options.maximum_display_points);
       if (job.second.ok()) {
         job.comparison = compare_point_clouds(reference, job.second.cloud, options);
       }
@@ -4194,7 +4604,7 @@ void MainWindow::open_cloud_transform()
   update_matrix();
   auto * note = new QLabel(QStringLiteral(
     "预览只变换当前显示样本。应用后将对完整点云和全部测量记录使用同一矩阵；"
-    "当前裁剪、分析和双云对比会清除，源 PCD 文件不会被改写。"));
+    "当前裁剪、分析和双云对比会清除，源点云文件不会被改写。"));
   note->setWordWrap(true);
   layout->addWidget(note);
   auto * buttons = new QDialogButtonBox;
@@ -4323,6 +4733,9 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr MainWindow::active_display_cloud() const
   }
   if (crop_.active && crop_.display_cloud) {
     return crop_.display_cloud;
+  }
+  if (current_.source_kind == CloudSourceKind::OdinOlx && sequence_display_cloud_) {
+    return sequence_display_cloud_;
   }
   return current_.display_cloud;
 }
@@ -4804,8 +5217,8 @@ void MainWindow::open_project()
     (current_path_.isEmpty() ? QDir::homePath() : QFileInfo(current_path_).absolutePath()) :
     QFileInfo(pending_project_path_).absolutePath();
   const QString path = QFileDialog::getOpenFileName(
-    this, QStringLiteral("打开 PCD 测量工程"), initial_directory,
-    QStringLiteral("PCD 测量工程 (*.pcdmeasure *.odinpcd);;JSON 文件 (*.json);;所有文件 (*)"));
+    this, QStringLiteral("打开点云测量工程"), initial_directory,
+    QStringLiteral("点云测量工程 (*.pcdmeasure *.odinpcd);;JSON 文件 (*.json);;所有文件 (*)"));
   if (path.isEmpty()) {
     return;
   }
@@ -4856,7 +5269,7 @@ bool MainWindow::read_project_file(
   const QJsonObject root = document.object();
   const QString format = root.value(QStringLiteral("format")).toString();
   if (!format.isEmpty() && format != QStringLiteral("pcd-measure-project")) {
-    if (error) *error = QStringLiteral("不是受支持的 PCD 测量工程：%1").arg(format);
+    if (error) *error = QStringLiteral("不是受支持的点云测量工程：%1").arg(format);
     return false;
   }
   if (root.contains(QStringLiteral("version"))) {
@@ -4906,7 +5319,7 @@ bool MainWindow::read_project_file(
   if (root.value(QStringLiteral("pcd_path")).toString().trimmed().isEmpty() &&
     root.value(QStringLiteral("pcd_relative_path")).toString().trimmed().isEmpty())
   {
-    if (error) *error = QStringLiteral("工程中缺少 PCD 文件路径。");
+    if (error) *error = QStringLiteral("工程中缺少点云文件路径。");
     return false;
   }
   *state = root;
@@ -4933,14 +5346,13 @@ QString MainWindow::resolve_project_cloud_path(
   candidates.removeDuplicates();
   for (const QString & candidate : candidates) {
     const QFileInfo info(candidate);
-    if (info.exists() && info.isFile() &&
-      info.suffix().compare(QStringLiteral("pcd"), Qt::CaseInsensitive) == 0)
+    if (info.exists() && info.isFile() && is_supported_cloud_file(info.absoluteFilePath()))
     {
       return info.absoluteFilePath();
     }
   }
   if (error) {
-    *error = QStringLiteral("工程引用的 PCD 不存在或不是有效的 .pcd 文件：\n%1")
+    *error = QStringLiteral("工程引用的点云不存在或格式不受支持：\n%1")
       .arg(candidates.join(QStringLiteral("\n")));
   }
   return QString();
@@ -4970,6 +5382,14 @@ QJsonObject MainWindow::build_project_state(const QString & project_path) const
   view.insert(QStringLiteral("bounds"), bounds_check_->isChecked());
   view.insert(QStringLiteral("context_cloud"), context_cloud_check_->isChecked());
   view.insert(QStringLiteral("measurement_labels"), measurement_labels_check_->isChecked());
+  if (current_.source_kind == CloudSourceKind::OdinOlx && !current_.frames.empty()) {
+    view.insert(QStringLiteral("sequence_frame"), sequence_slider_->value());
+    view.insert(QStringLiteral("sequence_render_mode"), sequence_render_combo_->currentIndex());
+    view.insert(QStringLiteral("sequence_infinite"), sequence_infinite_check_->isChecked());
+    view.insert(QStringLiteral("sequence_max_frames"), sequence_max_frames_spin_->value());
+    view.insert(QStringLiteral("sequence_speed"), sequence_speed_combo_->currentIndex());
+    view.insert(QStringLiteral("sequence_camera"), camera_preview_check_->isChecked());
+  }
   view.insert(QStringLiteral("display_origin_m"), QJsonArray{
     display_origin_[0], display_origin_[1], display_origin_[2]});
   root.insert(QStringLiteral("view"), view);
@@ -5110,8 +5530,8 @@ void MainWindow::save_project()
     cloud_info.absolutePath() + QDir::separator() + cloud_info.completeBaseName() +
       QStringLiteral(".pcdmeasure") : pending_project_path_;
   QString path = QFileDialog::getSaveFileName(
-    this, QStringLiteral("保存 PCD 测量工程"), suggested,
-    QStringLiteral("PCD 测量工程 (*.pcdmeasure)"));
+    this, QStringLiteral("保存点云测量工程"), suggested,
+    QStringLiteral("点云测量工程 (*.pcdmeasure)"));
   if (path.isEmpty()) {
     return;
   }
@@ -5205,7 +5625,7 @@ void MainWindow::restore_pending_project()
   bounds_check_->blockSignals(true);
   context_cloud_check_->blockSignals(true);
   measurement_labels_check_->blockSignals(true);
-  color_mode_combo_->setCurrentIndex(std::clamp(view.value(QStringLiteral("color_mode")).toInt(0), 0, 2));
+  color_mode_combo_->setCurrentIndex(std::clamp(view.value(QStringLiteral("color_mode")).toInt(0), 0, 3));
   point_size_spin_->setValue(std::clamp(view.value(QStringLiteral("point_size")).toInt(2), 1, 10));
   display_limit_spin_->setValue(std::clamp(
     view.value(QStringLiteral("display_point_limit")).toInt(display_limit_spin_->value()),
@@ -5256,6 +5676,37 @@ void MainWindow::restore_pending_project()
   measurement_labels_check_->blockSignals(false);
   apply_background_mode(background_index);
   rebuild_current_display_cloud(static_cast<std::size_t>(display_limit_spin_->value()));
+  if (current_.source_kind == CloudSourceKind::OdinOlx && !current_.frames.empty()) {
+    sequence_slider_->blockSignals(true);
+    sequence_render_combo_->blockSignals(true);
+    sequence_infinite_check_->blockSignals(true);
+    sequence_max_frames_spin_->blockSignals(true);
+    camera_preview_check_->blockSignals(true);
+    sequence_render_combo_->setCurrentIndex(std::clamp(
+      view.value(QStringLiteral("sequence_render_mode")).toInt(0), 0, 1));
+    sequence_infinite_check_->setChecked(
+      view.value(QStringLiteral("sequence_infinite")).toBool(true));
+    sequence_max_frames_spin_->setValue(std::clamp(
+      view.value(QStringLiteral("sequence_max_frames")).toInt(150), 1, 10000));
+    sequence_speed_combo_->setCurrentIndex(std::clamp(
+      view.value(QStringLiteral("sequence_speed")).toInt(2), 0,
+      sequence_speed_combo_->count() - 1));
+    sequence_slider_->setValue(std::clamp(
+      view.value(QStringLiteral("sequence_frame")).toInt(sequence_slider_->maximum()),
+      sequence_slider_->minimum(), sequence_slider_->maximum()));
+    camera_preview_check_->setChecked(
+      view.value(QStringLiteral("sequence_camera")).toBool(camera_preview_check_->isEnabled()));
+    sequence_slider_->blockSignals(false);
+    sequence_render_combo_->blockSignals(false);
+    sequence_infinite_check_->blockSignals(false);
+    sequence_max_frames_spin_->blockSignals(false);
+    camera_preview_check_->blockSignals(false);
+    const bool accumulated = sequence_render_combo_->currentIndex() == 0;
+    sequence_infinite_check_->setEnabled(accumulated);
+    sequence_max_frames_spin_->setEnabled(
+      accumulated && !sequence_infinite_check_->isChecked());
+    rebuild_sequence_display();
+  }
 
   const QJsonObject transform = root.value(QStringLiteral("transform")).toObject();
   if (transform.value(QStringLiteral("active")).toBool(false)) {
@@ -5495,7 +5946,7 @@ void MainWindow::restore_pending_project()
       const ComparisonJobOutput output = run_progress_task<ComparisonJobOutput>(
         this, QStringLiteral("恢复双点云对比"), [reference, second_path, options]() {
           ComparisonJobOutput job;
-          job.second = load_pcd_and_analyze(second_path, options.maximum_display_points);
+          job.second = load_cloud_and_analyze(second_path, options.maximum_display_points);
           if (job.second.ok()) job.comparison = compare_point_clouds(reference, job.second.cloud, options);
           return job;
         });
@@ -5939,8 +6390,8 @@ tr { page-break-inside: avoid; }
 .empty { color: #71838a; text-align: center; }
 .foot { color: #667c84; font-size: 8pt; margin-top: 7mm; }
 </style></head><body>
-<h1>PCD 点云测量报告</h1>
-<div class="meta">生成时间：%1<br>点云文件：%2<br>路径：%3</div>
+<h1>点云测量报告</h1>
+<div class="meta">生成时间：%1<br>源文件：%2<br>路径：%3</div>
 <div class="hero"><b>推荐整体尺寸</b><br>
 主方向长度 %4 m　宽度 %5 m　高度 %6 m　三维对角线 %7 m</div>
 <p class="view"><img src="pcd-view.png" width="470"></p>
@@ -6093,7 +6544,7 @@ void MainWindow::dragEnterEvent(QDragEnterEvent * event)
   for (const QUrl & url : event->mimeData()->urls()) {
     const QString suffix = QFileInfo(url.toLocalFile()).suffix();
     if (url.isLocalFile() && (detect_rosbag_kind(url.toLocalFile()) != RosbagKind::Unknown ||
-      suffix.compare(QStringLiteral("pcd"), Qt::CaseInsensitive) == 0 ||
+      is_supported_cloud_file(url.toLocalFile()) ||
       suffix.compare(QStringLiteral("pcdmeasure"), Qt::CaseInsensitive) == 0 ||
       suffix.compare(QStringLiteral("odinpcd"), Qt::CaseInsensitive) == 0)) {
       event->acceptProposedAction();
@@ -6118,7 +6569,7 @@ void MainWindow::dropEvent(QDropEvent * event)
       open_project_path(path);
       return;
     }
-    if (!path.isEmpty() && suffix.compare(QStringLiteral("pcd"), Qt::CaseInsensitive) == 0) {
+    if (!path.isEmpty() && is_supported_cloud_file(path)) {
       event->acceptProposedAction();
       pending_project_state_ = QJsonObject{};
       pending_project_path_.clear();
