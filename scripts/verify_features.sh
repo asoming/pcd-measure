@@ -11,20 +11,20 @@ fi
 
 cmake --build "$project_dir/build" -j2
 
-verify_dir="$(mktemp -d /tmp/pcd-measure-verify.XXXXXX)"
+verify_dir="$(mktemp -d /tmp/point-cloud-workbench-verify.XXXXXX)"
 cleanup() {
   case "$verify_dir" in
-    /tmp/pcd-measure-verify.*) rm -rf -- "$verify_dir" ;;
+    /tmp/point-cloud-workbench-verify.*) rm -rf -- "$verify_dir" ;;
   esac
 }
 trap cleanup EXIT
 
-"$project_dir/build/bin/pcd_analyze" "$pcd_path" > "$verify_dir/full.json"
-"$project_dir/build/bin/pcd_analyze" --max-display-points 100000 \
+"$project_dir/build/bin/point_cloud_analyze" "$pcd_path" > "$verify_dir/full.json"
+"$project_dir/build/bin/point_cloud_analyze" --max-display-points 100000 \
   "$pcd_path" > "$verify_dir/lod.json"
-"$project_dir/build/bin/pcd_analyze" \
+"$project_dir/build/bin/point_cloud_analyze" \
   "$project_dir/tests/fixtures/xyz_no_color_ascii.pcd" > "$verify_dir/no_color.json"
-"$project_dir/build/bin/pcd_analyze" \
+"$project_dir/build/bin/point_cloud_analyze" \
   "$project_dir/tests/fixtures/invalid_points_ascii.pcd" > "$verify_dir/invalid.json"
 
 python3 - "$verify_dir" <<'PY'
@@ -61,14 +61,14 @@ print(f"推荐尺寸 {length:.3f} × {width:.3f} × {height:.3f} m")
 PY
 
 ctest --test-dir "$project_dir/build" --output-on-failure
-PCD_MEASURE_TEST_PCD="$pcd_path" \
-PCD_MEASURE_TEST_REPORT_PATH="$verify_dir/reference-report.pdf" \
-PCD_MEASURE_TEST_ACTUAL_SCREENSHOT="$verify_dir/reference-ui.png" \
-PCD_MEASURE_TEST_ACTUAL_ANNOTATION_SCREENSHOT="$verify_dir/reference-annotations.png" \
-PCD_MEASURE_TEST_UI_SCREENSHOT="$verify_dir/minimum-ui.png" \
-  "$project_dir/build/bin/pcd_gui_test"
-PCD_MEASURE_TEST_PCD="$pcd_path" \
-  "$project_dir/build/bin/pcd_real_workflow_test"
+POINT_CLOUD_WORKBENCH_TEST_PCD="$pcd_path" \
+POINT_CLOUD_WORKBENCH_TEST_REPORT_PATH="$verify_dir/reference-report.pdf" \
+POINT_CLOUD_WORKBENCH_TEST_ACTUAL_SCREENSHOT="$verify_dir/reference-ui.png" \
+POINT_CLOUD_WORKBENCH_TEST_ACTUAL_ANNOTATION_SCREENSHOT="$verify_dir/reference-annotations.png" \
+POINT_CLOUD_WORKBENCH_TEST_UI_SCREENSHOT="$verify_dir/minimum-ui.png" \
+  "$project_dir/build/bin/point_cloud_workbench_gui_test"
+POINT_CLOUD_WORKBENCH_TEST_PCD="$pcd_path" \
+  "$project_dir/build/bin/real_workflow_test"
 test -s "$verify_dir/reference-report.pdf"
 test -s "$verify_dir/reference-ui.png"
 test -s "$verify_dir/reference-annotations.png"

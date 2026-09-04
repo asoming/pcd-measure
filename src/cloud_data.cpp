@@ -202,7 +202,7 @@ bool has_odin_map_magic(const QString & path, quint32 * version = nullptr)
 
 QString project_directory()
 {
-  const QString configured = qEnvironmentVariable("PCD_MEASURE_PROJECT_DIR").trimmed();
+  const QString configured = qEnvironmentVariable("POINT_CLOUD_WORKBENCH_PROJECT_DIR").trimmed();
   if (!configured.isEmpty()) return QFileInfo(configured).absoluteFilePath();
 
   QDir directory(QCoreApplication::applicationDirPath());
@@ -216,7 +216,7 @@ QString project_directory()
 QString find_map_converter()
 {
   QStringList candidates;
-  const QString configured = qEnvironmentVariable("PCD_MEASURE_MAP_TO_PLY").trimmed();
+  const QString configured = qEnvironmentVariable("POINT_CLOUD_WORKBENCH_MAP_TO_PLY").trimmed();
   if (!configured.isEmpty()) candidates.append(configured);
 
   const QString root = project_directory();
@@ -248,7 +248,7 @@ bool convert_odin_map(
       *error = QStringLiteral(
         "检测到 Odin MAPV0001 地图，但尚未安装官方解码器。\n\n"
         "请在项目目录运行：\n./scripts/setup_odin_map_tools.sh\n\n"
-        "安装后重新打开该 BIN；也可通过 PCD_MEASURE_MAP_TO_PLY 指定解码器路径。");
+        "安装后重新打开该 BIN；也可通过 POINT_CLOUD_WORKBENCH_MAP_TO_PLY 指定解码器路径。");
     }
     return false;
   }

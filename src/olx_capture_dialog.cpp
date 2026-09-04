@@ -694,7 +694,7 @@ void OlxCaptureDialog::reject()
 
 QString OlxCaptureDialog::project_directory() const
 {
-  const QString configured = qEnvironmentVariable("PCD_MEASURE_PROJECT_DIR").trimmed();
+  const QString configured = qEnvironmentVariable("POINT_CLOUD_WORKBENCH_PROJECT_DIR").trimmed();
   if (!configured.isEmpty()) return QFileInfo(configured).absoluteFilePath();
   QDir directory(QCoreApplication::applicationDirPath());
   if (directory.dirName() == QStringLiteral("bin")) {

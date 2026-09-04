@@ -21,7 +21,7 @@ if [[ -n "${missing_system_packages}" ]]; then
   while IFS= read -r package_name; do
     printf '  %s\n' "${package_name}"
   done <<< "${missing_system_packages}"
-  if [[ "${PCD_MEASURE_SKIP_SYSTEM_SETUP:-0}" == "1" ]]; then
+  if [[ "${POINT_CLOUD_WORKBENCH_SKIP_SYSTEM_SETUP:-0}" == "1" ]]; then
     echo "已跳过系统依赖安装，无法继续编译。" >&2
     exit 3
   fi
@@ -36,12 +36,12 @@ if [[ -n "${missing_system_packages}" ]]; then
   fi
 fi
 
-if [[ ! -x "${project_dir}/build/bin/pcd_measure" ]]; then
+if [[ ! -x "${project_dir}/build/bin/point_cloud_workbench" ]]; then
   echo "首次安装，正在编译点云工作台……"
   "${project_dir}/build.sh"
 fi
 
-if [[ "${PCD_MEASURE_SKIP_ROSBAG_SETUP:-0}" != "1" &&
+if [[ "${POINT_CLOUD_WORKBENCH_SKIP_ROSBAG_SETUP:-0}" != "1" &&
   ! -x "${project_dir}/.rosbag-venv/bin/python" ]]; then
   echo "正在安装 ROS1/MCAP 离线解析支持……"
   if ! "${project_dir}/scripts/setup_rosbag_tools.sh"; then
@@ -50,7 +50,7 @@ if [[ "${PCD_MEASURE_SKIP_ROSBAG_SETUP:-0}" != "1" &&
   fi
 fi
 
-if [[ "${PCD_MEASURE_SKIP_ODIN_MAP_SETUP:-0}" != "1" &&
+if [[ "${POINT_CLOUD_WORKBENCH_SKIP_ODIN_MAP_SETUP:-0}" != "1" &&
   ! -x "${project_dir}/tools/map_to_ply" ]]; then
   echo "正在安装 MAPV0001 BIN 点云导入支持……"
   if ! "${project_dir}/scripts/setup_odin_map_tools.sh"; then
@@ -59,7 +59,7 @@ if [[ "${PCD_MEASURE_SKIP_ODIN_MAP_SETUP:-0}" != "1" &&
   fi
 fi
 
-desktop_dir="${PCD_MEASURE_DESKTOP_DIR:-}"
+desktop_dir="${POINT_CLOUD_WORKBENCH_DESKTOP_DIR:-}"
 if [[ -z "${desktop_dir}" ]] && command -v xdg-user-dir >/dev/null 2>&1; then
   desktop_dir="$(xdg-user-dir DESKTOP)"
 fi
@@ -67,10 +67,11 @@ if [[ -z "${desktop_dir}" ]]; then
   desktop_dir="${HOME:?}/Desktop"
 fi
 
-applications_dir="${PCD_MEASURE_APPLICATIONS_DIR:-${XDG_DATA_HOME:-${HOME:?}/.local/share}/applications}"
+applications_dir="${POINT_CLOUD_WORKBENCH_APPLICATIONS_DIR:-${XDG_DATA_HOME:-${HOME:?}/.local/share}/applications}"
 desktop_launcher="${desktop_dir}/点云工作台.desktop"
 legacy_desktop_launcher="${desktop_dir}/点云测量工具.desktop"
-menu_launcher="${applications_dir}/pcd-measure.desktop"
+menu_launcher="${applications_dir}/point-cloud-workbench.desktop"
+legacy_menu_launcher="${applications_dir}/pcd-measure.desktop"
 temporary_launcher="$(mktemp)"
 trap 'rm -f -- "${temporary_launcher}"' EXIT
 
@@ -88,6 +89,14 @@ if [[ -f "${legacy_desktop_launcher}" && ! -L "${legacy_desktop_launcher}" ]] &&
   grep -Fq "Exec=\"${project_dir}/run.sh\" %F" "${legacy_desktop_launcher}"; then
   rm -f -- "${legacy_desktop_launcher}"
   echo "已迁移旧桌面入口：${legacy_desktop_launcher}"
+fi
+
+if [[ -f "${legacy_menu_launcher}" && ! -L "${legacy_menu_launcher}" ]] &&
+  grep -Eq '^Name=(点云工作台|点云测量工具)$' "${legacy_menu_launcher}" &&
+  grep -Fq '/run.sh" %F' "${legacy_menu_launcher}" &&
+  grep -Fq '/assets/pcd_measure.svg' "${legacy_menu_launcher}"; then
+  rm -f -- "${legacy_menu_launcher}"
+  echo "已迁移旧应用菜单入口：${legacy_menu_launcher}"
 fi
 
 if command -v gio >/dev/null 2>&1; then

@@ -34,8 +34,9 @@ void RosbagDialogTest::initTestCase()
 {
   QStandardPaths::setTestModeEnabled(true);
   QSettings().clear();
-  qputenv("PCD_MEASURE_PROJECT_DIR", QByteArray(PCD_MEASURE_TEST_PROJECT_DIR));
-  qputenv("PCD_MEASURE_ROSBAG_PYTHON", QByteArray("/usr/bin/python3"));
+  qputenv("POINT_CLOUD_WORKBENCH_PROJECT_DIR",
+    QByteArray(POINT_CLOUD_WORKBENCH_TEST_PROJECT_DIR));
+  qputenv("POINT_CLOUD_WORKBENCH_ROSBAG_PYTHON", QByteArray("/usr/bin/python3"));
 }
 
 bool RosbagDialogTest::create_test_bag(const QString & directory, QString * error)
@@ -163,13 +164,13 @@ void RosbagDialogTest::runs_diagnostic_journey_and_populates_tables()
   QVERIFY(opener.open(QIODevice::WriteOnly));
   opener.write(
     "#!/usr/bin/env bash\n"
-    "printf '%s' \"$1\" > \"$PCD_MEASURE_HTML_OPEN_CAPTURE\"\n");
+    "printf '%s' \"$1\" > \"$POINT_CLOUD_WORKBENCH_HTML_OPEN_CAPTURE\"\n");
   opener.close();
   QVERIFY(opener.setPermissions(
     QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
   const QByteArray original_path = qgetenv("PATH");
   qputenv("PATH", QFile::encodeName(browser_bin) + ':' + original_path);
-  qputenv("PCD_MEASURE_HTML_OPEN_CAPTURE", QFile::encodeName(capture_path));
+  qputenv("POINT_CLOUD_WORKBENCH_HTML_OPEN_CAPTURE", QFile::encodeName(capture_path));
   QVERIFY(open_report->isEnabled());
   open_report->click();
   QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(capture_path), 5000);
@@ -179,9 +180,10 @@ void RosbagDialogTest::runs_diagnostic_journey_and_populates_tables()
   QVERIFY(opened_url.startsWith("file:"));
   QVERIFY(opened_url.endsWith(".html"));
   qputenv("PATH", original_path);
-  qunsetenv("PCD_MEASURE_HTML_OPEN_CAPTURE");
+  qunsetenv("POINT_CLOUD_WORKBENCH_HTML_OPEN_CAPTURE");
 
-  const QString screenshot_path = qEnvironmentVariable("PCD_MEASURE_ROSBAG_RESULT_SCREENSHOT");
+  const QString screenshot_path = qEnvironmentVariable(
+    "POINT_CLOUD_WORKBENCH_ROSBAG_RESULT_SCREENSHOT");
   if (!screenshot_path.isEmpty()) {
     QVERIFY2(dialog.grab().save(screenshot_path), qPrintable(screenshot_path));
   }
@@ -247,7 +249,8 @@ void RosbagDialogTest::renders_technology_console_layout()
   QCOMPARE(dialog.objectName(), QStringLiteral("rosbagDiagnosticDialog"));
   QVERIFY(dialog.findChild<QTableWidget *>(QStringLiteral("rosbagTfTable")));
   QVERIFY(dialog.findChild<QTableWidget *>(QStringLiteral("rosbagSensorTable")));
-  const QString screenshot_path = qEnvironmentVariable("PCD_MEASURE_ROSBAG_SCREENSHOT");
+  const QString screenshot_path = qEnvironmentVariable(
+    "POINT_CLOUD_WORKBENCH_ROSBAG_SCREENSHOT");
   if (!screenshot_path.isEmpty()) {
     QVERIFY2(dialog.grab().save(screenshot_path), qPrintable(screenshot_path));
   }

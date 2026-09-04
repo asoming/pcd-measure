@@ -190,7 +190,7 @@ bool launch_html_report(
   }
 
   QStringList candidates;
-  const QString configured = qEnvironmentVariable("PCD_MEASURE_HTML_OPENER").trimmed();
+  const QString configured = qEnvironmentVariable("POINT_CLOUD_WORKBENCH_HTML_OPENER").trimmed();
   if (!configured.isEmpty()) append_unique(&candidates, configured);
 
   const QString desktop_id = desktop_default_browser();
@@ -840,7 +840,7 @@ void RosbagDiagnosticDialog::start_diagnosis()
   QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
   environment.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
   if (!setup_file.isEmpty()) {
-    environment.insert(QStringLiteral("PCD_MEASURE_ROS_SETUP"), setup_file);
+    environment.insert(QStringLiteral("POINT_CLOUD_WORKBENCH_ROS_SETUP"), setup_file);
   }
   diagnostic_process_.setProcessEnvironment(environment);
   append_log(QStringLiteral("开始只读诊断：%1").arg(path), QStringLiteral("DIAG"));
@@ -1215,7 +1215,7 @@ void RosbagDiagnosticDialog::start_playback()
   playback_process_.setWorkingDirectory(rosbag_project_root());
   QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
   if (!setup_file.isEmpty()) {
-    environment.insert(QStringLiteral("PCD_MEASURE_ROS_SETUP"), setup_file);
+    environment.insert(QStringLiteral("POINT_CLOUD_WORKBENCH_ROS_SETUP"), setup_file);
   }
   playback_process_.setProcessEnvironment(environment);
   append_log(QStringLiteral("启动 %1 回放，倍率 %2×，/clock %3，循环 %4。")

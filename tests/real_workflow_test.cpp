@@ -19,9 +19,9 @@ class RealWorkflowTest : public QObject
 private slots:
   void completeReferenceWorkflow()
   {
-    const QString path = QString::fromLocal8Bit(qgetenv("PCD_MEASURE_TEST_PCD"));
+    const QString path = QString::fromLocal8Bit(qgetenv("POINT_CLOUD_WORKBENCH_TEST_PCD"));
     if (path.isEmpty() || !QFileInfo::exists(path)) {
-      QSKIP("PCD_MEASURE_TEST_PCD is not set to an existing reference cloud");
+      QSKIP("POINT_CLOUD_WORKBENCH_TEST_PCD is not set to an existing reference cloud");
     }
     const qint64 original_size = QFileInfo(path).size();
     const CloudLoadResult cloud = load_pcd_and_analyze(path, 100000);

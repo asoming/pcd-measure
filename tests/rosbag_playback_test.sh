@@ -2,11 +2,11 @@
 set -euo pipefail
 
 project_dir="${1:?project directory is required}"
-test_dir="$(mktemp -d /tmp/pcd-measure-rosbag-playback.XXXXXX)"
+test_dir="$(mktemp -d /tmp/point-cloud-workbench-rosbag-playback.XXXXXX)"
 
 cleanup() {
   case "${test_dir}" in
-    /tmp/pcd-measure-rosbag-playback.*) rm -rf -- "${test_dir}" ;;
+    /tmp/point-cloud-workbench-rosbag-playback.*) rm -rf -- "${test_dir}" ;;
   esac
 }
 trap cleanup EXIT
@@ -33,7 +33,7 @@ SH
 ros2_output="${test_dir}/ros2.args"
 PATH="${test_dir}/bin:${PATH}" \
 FAKE_OUTPUT="${ros2_output}" \
-PCD_MEASURE_ROS_SETUP="${test_dir}/setup.bash" \
+POINT_CLOUD_WORKBENCH_ROS_SETUP="${test_dir}/setup.bash" \
   "${project_dir}/scripts/rosbag_play.sh" \
     2 "${test_dir}/bag with spaces;[literal]/recording.db3" 0.5 1 1
 
@@ -66,7 +66,7 @@ if PATH="${test_dir}/bin:${PATH}" FAKE_OUTPUT="${test_dir}/invalid.args" \
   exit 1
 fi
 if PATH="${test_dir}/bin:${PATH}" FAKE_OUTPUT="${test_dir}/invalid.args" \
-  PCD_MEASURE_ROS_SETUP="${test_dir}/missing-setup.bash" \
+  POINT_CLOUD_WORKBENCH_ROS_SETUP="${test_dir}/missing-setup.bash" \
   "${project_dir}/scripts/rosbag_play.sh" 2 "${test_dir}/recording.bag" 1 0 0; then
   echo "missing ROS setup was unexpectedly accepted" >&2
   exit 1

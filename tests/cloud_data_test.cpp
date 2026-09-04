@@ -20,7 +20,7 @@ class CloudDataTest : public QObject
   Q_OBJECT
 
 private:
-  QString fixture_directory_ = QStringLiteral(PCD_MEASURE_TEST_FIXTURE_DIR);
+  QString fixture_directory_ = QStringLiteral(POINT_CLOUD_WORKBENCH_TEST_FIXTURE_DIR);
 
   static pcl::PointCloud<pcl::PointXYZRGB> colored_cloud(int count)
   {
@@ -201,12 +201,12 @@ private slots:
     QVERIFY(write_bytes(map, map_header));
     QCOMPARE(detect_cloud_source_kind(map), CloudSourceKind::OdinMapBin);
 
-    const bool had_project_dir = qEnvironmentVariableIsSet("PCD_MEASURE_PROJECT_DIR");
-    const QByteArray old_project_dir = qgetenv("PCD_MEASURE_PROJECT_DIR");
-    qputenv("PCD_MEASURE_PROJECT_DIR", QFile::encodeName(directory.path()));
+    const bool had_project_dir = qEnvironmentVariableIsSet("POINT_CLOUD_WORKBENCH_PROJECT_DIR");
+    const QByteArray old_project_dir = qgetenv("POINT_CLOUD_WORKBENCH_PROJECT_DIR");
+    qputenv("POINT_CLOUD_WORKBENCH_PROJECT_DIR", QFile::encodeName(directory.path()));
     const CloudLoadResult map_result = load_cloud_and_analyze(map);
-    if (had_project_dir) qputenv("PCD_MEASURE_PROJECT_DIR", old_project_dir);
-    else qunsetenv("PCD_MEASURE_PROJECT_DIR");
+    if (had_project_dir) qputenv("POINT_CLOUD_WORKBENCH_PROJECT_DIR", old_project_dir);
+    else qunsetenv("POINT_CLOUD_WORKBENCH_PROJECT_DIR");
     QVERIFY(!map_result.ok());
     QVERIFY(map_result.error.contains(QStringLiteral("解码")));
 
@@ -230,12 +230,12 @@ private slots:
     QVERIFY(write_bytes(converter, QByteArray("#!/bin/sh\necho decoder-broken >&2\nexit 7\n")));
     QVERIFY(QFile::setPermissions(converter,
       QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
-    const bool had_converter = qEnvironmentVariableIsSet("PCD_MEASURE_MAP_TO_PLY");
-    const QByteArray old_converter = qgetenv("PCD_MEASURE_MAP_TO_PLY");
-    qputenv("PCD_MEASURE_MAP_TO_PLY", QFile::encodeName(converter));
+    const bool had_converter = qEnvironmentVariableIsSet("POINT_CLOUD_WORKBENCH_MAP_TO_PLY");
+    const QByteArray old_converter = qgetenv("POINT_CLOUD_WORKBENCH_MAP_TO_PLY");
+    qputenv("POINT_CLOUD_WORKBENCH_MAP_TO_PLY", QFile::encodeName(converter));
     const CloudLoadResult failed = load_cloud_and_analyze(map);
-    if (had_converter) qputenv("PCD_MEASURE_MAP_TO_PLY", old_converter);
-    else qunsetenv("PCD_MEASURE_MAP_TO_PLY");
+    if (had_converter) qputenv("POINT_CLOUD_WORKBENCH_MAP_TO_PLY", old_converter);
+    else qunsetenv("POINT_CLOUD_WORKBENCH_MAP_TO_PLY");
     QVERIFY(!failed.ok());
     QVERIFY(failed.error.contains(QStringLiteral("退出码 7")));
     QVERIFY(failed.error.contains(QStringLiteral("decoder-broken")));

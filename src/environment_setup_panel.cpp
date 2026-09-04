@@ -194,7 +194,7 @@ void EnvironmentSetupPanel::activate_workspace()
 
 QString EnvironmentSetupPanel::project_directory() const
 {
-  const QString configured = qEnvironmentVariable("PCD_MEASURE_PROJECT_DIR").trimmed();
+  const QString configured = qEnvironmentVariable("POINT_CLOUD_WORKBENCH_PROJECT_DIR").trimmed();
   if (!configured.isEmpty()) return QFileInfo(configured).absoluteFilePath();
   QDir directory(QCoreApplication::applicationDirPath());
   if (directory.dirName() == QStringLiteral("bin")) {
@@ -215,7 +215,7 @@ QString EnvironmentSetupPanel::applications_launcher_path() const
 {
   QString data = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
   if (data.isEmpty()) data = QDir::home().filePath(QStringLiteral(".local/share"));
-  return QDir(data).filePath(QStringLiteral("applications/pcd-measure.desktop"));
+  return QDir(data).filePath(QStringLiteral("applications/point-cloud-workbench.desktop"));
 }
 
 bool EnvironmentSetupPanel::rosbag_environment_ready() const
@@ -242,7 +242,7 @@ bool EnvironmentSetupPanel::map_converter_ready() const
 bool EnvironmentSetupPanel::application_binary_ready() const
 {
   return QFileInfo(QDir(project_directory()).filePath(
-    QStringLiteral("build/bin/pcd_measure"))).isExecutable();
+    QStringLiteral("build/bin/point_cloud_workbench"))).isExecutable();
 }
 
 bool EnvironmentSetupPanel::desktop_launchers_ready() const
@@ -605,9 +605,12 @@ void EnvironmentSetupPanel::start_next_install_step()
       return;
     case Task::InstallDesktop: {
       QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
-      environment.insert(QStringLiteral("PCD_MEASURE_SKIP_SYSTEM_SETUP"), QStringLiteral("1"));
-      environment.insert(QStringLiteral("PCD_MEASURE_SKIP_ROSBAG_SETUP"), QStringLiteral("1"));
-      environment.insert(QStringLiteral("PCD_MEASURE_SKIP_ODIN_MAP_SETUP"), QStringLiteral("1"));
+      environment.insert(
+        QStringLiteral("POINT_CLOUD_WORKBENCH_SKIP_SYSTEM_SETUP"), QStringLiteral("1"));
+      environment.insert(
+        QStringLiteral("POINT_CLOUD_WORKBENCH_SKIP_ROSBAG_SETUP"), QStringLiteral("1"));
+      environment.insert(
+        QStringLiteral("POINT_CLOUD_WORKBENCH_SKIP_ODIN_MAP_SETUP"), QStringLiteral("1"));
       start_process(task, QDir(project).filePath(QStringLiteral("install_desktop.sh")), {},
         environment);
       return;

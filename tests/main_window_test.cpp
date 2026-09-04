@@ -66,7 +66,7 @@ class MainWindowTest : public QObject
 private:
   std::unique_ptr<MainWindow> window_;
   QString actual_pcd_;
-  QString fixture_directory_ = QStringLiteral(PCD_MEASURE_TEST_FIXTURE_DIR);
+  QString fixture_directory_ = QStringLiteral(POINT_CLOUD_WORKBENCH_TEST_FIXTURE_DIR);
 
   bool wait_for_load(const QString & expected_path, int timeout_ms = 60000)
   {
@@ -188,7 +188,7 @@ private slots:
   void initTestCase()
   {
     QStandardPaths::setTestModeEnabled(true);
-    actual_pcd_ = QString::fromLocal8Bit(qgetenv("PCD_MEASURE_TEST_PCD"));
+    actual_pcd_ = QString::fromLocal8Bit(qgetenv("POINT_CLOUD_WORKBENCH_TEST_PCD"));
     QVERIFY2(QFileInfo::exists(fixture_directory_ + QStringLiteral("/xyz_no_color_ascii.pcd")),
       "XYZ fixture is missing");
     QVERIFY2(QFileInfo::exists(fixture_directory_ + QStringLiteral("/rgba_ascii.pcd")),
@@ -202,7 +202,7 @@ private slots:
   void fileLoadingAndActualStatistics()
   {
     if (actual_pcd_.isEmpty() || !QFileInfo::exists(actual_pcd_)) {
-      QSKIP("PCD_MEASURE_TEST_PCD is not set to an existing cloud");
+      QSKIP("POINT_CLOUD_WORKBENCH_TEST_PCD is not set to an existing cloud");
     }
     window_->open_path(actual_pcd_);
     QVERIFY(window_->progress_bar_->isVisible());
@@ -231,17 +231,17 @@ private slots:
     QVERIFY(window_->outlier_ratio_label_->text().contains(QStringLiteral("0.5%")));
     QVERIFY(window_->system_status_label_->text().contains(QStringLiteral("READY")));
 
-    const QStringList recent = QSettings().value(QStringLiteral("recentPcdFiles")).toStringList();
+    const QStringList recent = QSettings().value(QStringLiteral("recentCloudFiles")).toStringList();
     QVERIFY(recent.contains(QFileInfo(actual_pcd_).absoluteFilePath()));
     const QString screenshot_path = QString::fromLocal8Bit(
-      qgetenv("PCD_MEASURE_TEST_ACTUAL_SCREENSHOT"));
+      qgetenv("POINT_CLOUD_WORKBENCH_TEST_ACTUAL_SCREENSHOT"));
     if (!screenshot_path.isEmpty()) {
       QVERIFY2(window_->grab().save(screenshot_path, "PNG"), qPrintable(screenshot_path));
       QVERIFY(QFileInfo(screenshot_path).size() > 1000);
     }
 
     const QString annotation_path = QString::fromLocal8Bit(
-      qgetenv("PCD_MEASURE_TEST_ACTUAL_ANNOTATION_SCREENSHOT"));
+      qgetenv("POINT_CLOUD_WORKBENCH_TEST_ACTUAL_ANNOTATION_SCREENSHOT"));
     if (!annotation_path.isEmpty()) {
       window_->clear_measurements();
       const float cx = static_cast<float>(metrics.oriented.center_x);
@@ -392,7 +392,7 @@ private slots:
     window_->stop_sequence_playback();
 
     const QString olx_screenshot = QString::fromLocal8Bit(
-      qgetenv("PCD_MEASURE_TEST_OLX_SCREENSHOT"));
+      qgetenv("POINT_CLOUD_WORKBENCH_TEST_OLX_SCREENSHOT"));
     if (!olx_screenshot.isEmpty()) {
       window_->resize(1540, 920);
       QApplication::processEvents();
@@ -401,7 +401,7 @@ private slots:
     }
 
     const QJsonObject project = window_->build_project_state(
-      directory.filePath(QStringLiteral("sequence.pcdmeasure")));
+      directory.filePath(QStringLiteral("sequence.pcworkbench")));
     const QJsonObject view = project.value(QStringLiteral("view")).toObject();
     QCOMPARE(view.value(QStringLiteral("sequence_frame")).toInt(), 1);
     QCOMPARE(view.value(QStringLiteral("sequence_render_mode")).toInt(), 0);
@@ -491,7 +491,7 @@ private slots:
     QVERIFY(!stop_button->isEnabled());
     QTRY_VERIFY_WITH_TIMEOUT(!topic_status->text().contains(QStringLiteral("检查中")), 6000);
     const QString capture_screenshot = QString::fromLocal8Bit(
-      qgetenv("PCD_MEASURE_TEST_CAPTURE_SCREENSHOT"));
+      qgetenv("POINT_CLOUD_WORKBENCH_TEST_CAPTURE_SCREENSHOT"));
     if (!capture_screenshot.isEmpty()) {
       auto * recording_status = capture_dialog->findChild<QLabel *>(
         QStringLiteral("olxRecordingStatus"));
@@ -556,7 +556,7 @@ private slots:
     QVERIFY(path_edit);
     QCOMPARE(path_edit->text(), QFileInfo(bag_path).absoluteFilePath());
     const QString embedded_rosbag_screenshot = QString::fromLocal8Bit(
-      qgetenv("PCD_MEASURE_TEST_EMBEDDED_ROSBAG_SCREENSHOT"));
+      qgetenv("POINT_CLOUD_WORKBENCH_TEST_EMBEDDED_ROSBAG_SCREENSHOT"));
     if (!embedded_rosbag_screenshot.isEmpty()) {
       QApplication::processEvents();
       QVERIFY2(window_->grab().save(embedded_rosbag_screenshot, "PNG"),
@@ -589,7 +589,7 @@ private slots:
     QVERIFY(panel->log_edit_->toPlainText().contains(QStringLiteral("系统编译依赖完整")));
 
     const QString screenshot = QString::fromLocal8Bit(
-      qgetenv("PCD_MEASURE_TEST_ENVIRONMENT_SCREENSHOT"));
+      qgetenv("POINT_CLOUD_WORKBENCH_TEST_ENVIRONMENT_SCREENSHOT"));
     if (!screenshot.isEmpty()) {
       window_->resize(1540, 920);
       QApplication::processEvents();
@@ -754,9 +754,9 @@ private slots:
     QVERIFY(directory.isValid());
     const QString missing = directory.filePath(QStringLiteral("missing.pcd"));
     QSettings settings;
-    settings.setValue(QStringLiteral("recentPcdFiles"), QStringList{missing, rgba, rgba});
+    settings.setValue(QStringLiteral("recentCloudFiles"), QStringList{missing, rgba, rgba});
     window_->rebuild_recent_menu();
-    QCOMPARE(settings.value(QStringLiteral("recentPcdFiles")).toStringList(), QStringList{rgba});
+    QCOMPARE(settings.value(QStringLiteral("recentCloudFiles")).toStringList(), QStringList{rgba});
     QCOMPARE(window_->recent_menu_->actions().size(), 1);
 
     const QString project_path = directory.filePath(QStringLiteral("可拖放工程.odinpcd"));
@@ -768,7 +768,7 @@ private slots:
     QCOMPARE(project.write(payload), static_cast<qint64>(payload.size()));
     project.close();
     settings.setValue(QStringLiteral("recentProjectFiles"),
-      QStringList{directory.filePath(QStringLiteral("missing.pcdmeasure")), project_path});
+      QStringList{directory.filePath(QStringLiteral("missing.pcworkbench")), project_path});
     window_->rebuild_recent_project_menu();
     QCOMPARE(settings.value(QStringLiteral("recentProjectFiles")).toStringList(),
       QStringList{project_path});
@@ -988,7 +988,7 @@ private slots:
     QTemporaryDir report_directory;
     QVERIFY(report_directory.isValid());
     const QString requested_report = QString::fromLocal8Bit(
-      qgetenv("PCD_MEASURE_TEST_REPORT_PATH"));
+      qgetenv("POINT_CLOUD_WORKBENCH_TEST_REPORT_PATH"));
     const QString report_path = requested_report.isEmpty() ?
       report_directory.filePath(QStringLiteral("report.pdf")) : requested_report;
     QString report_error;
@@ -996,7 +996,7 @@ private slots:
     QVERIFY(QFileInfo(report_path).size() > 1000);
 
     const QString annotated_screenshot = QString::fromLocal8Bit(
-      qgetenv("PCD_MEASURE_TEST_ANNOTATION_SCREENSHOT"));
+      qgetenv("POINT_CLOUD_WORKBENCH_TEST_ANNOTATION_SCREENSHOT"));
     if (!annotated_screenshot.isEmpty()) {
       QVERIFY2(window_->grab().save(annotated_screenshot, "PNG"),
         qPrintable(annotated_screenshot));
@@ -1341,12 +1341,16 @@ private slots:
 
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    const QString project_path = directory.filePath(QStringLiteral("complete.pcdmeasure"));
+    const QString project_path = directory.filePath(QStringLiteral("complete.pcworkbench"));
     QVERIFY2(window_->write_project_file(project_path, &error), qPrintable(error));
     QFile project_file(project_path);
     QVERIFY(project_file.open(QIODevice::ReadOnly));
     const QJsonObject root = QJsonDocument::fromJson(project_file.readAll()).object();
-    QCOMPARE(root.value(QStringLiteral("version")).toInt(), 7);
+    QCOMPARE(root.value(QStringLiteral("format")).toString(),
+      QStringLiteral("point-cloud-workbench-project"));
+    QCOMPARE(root.value(QStringLiteral("version")).toInt(), 8);
+    QVERIFY(root.contains(QStringLiteral("cloud_path")));
+    QVERIFY(!root.contains(QStringLiteral("pcd_path")));
     QVERIFY(root.value(QStringLiteral("transform")).toObject()
       .value(QStringLiteral("active")).toBool());
     QVERIFY(root.value(QStringLiteral("comparison")).toObject()
@@ -1356,7 +1360,7 @@ private slots:
     QCOMPARE(root.value(QStringLiteral("analyses")).toArray().size(), 2);
 
     window_->open_project_path(project_path);
-    QVERIFY2(wait_for_load(xyz), "Version 7 project failed to restore");
+    QVERIFY2(wait_for_load(xyz), "Version 8 project failed to restore");
     QVERIFY(close_to(window_->current_.cloud->front().x, 1.0, 1e-6));
     QVERIFY(close_to(window_->current_.cloud->front().y, 2.0, 1e-6));
     QCOMPARE(window_->measurements_.size(), std::size_t(1));
@@ -1393,7 +1397,7 @@ private slots:
       QStringLiteral("测试派生区域"), false));
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    const QString project_path = directory.filePath(QStringLiteral("derived.pcdmeasure"));
+    const QString project_path = directory.filePath(QStringLiteral("derived.pcworkbench"));
     QString error;
     QVERIFY2(window_->write_project_file(project_path, &error), qPrintable(error));
     QVERIFY(QFileInfo::exists(project_path + QStringLiteral(".region.pcd")));
@@ -1894,7 +1898,7 @@ private slots:
       };
     QJsonObject state;
     QString error;
-    const QString corrupt_path = directory.filePath(QStringLiteral("corrupt.pcdmeasure"));
+    const QString corrupt_path = directory.filePath(QStringLiteral("corrupt.pcworkbench"));
     QFile corrupt(corrupt_path);
     QVERIFY(corrupt.open(QIODevice::WriteOnly));
     corrupt.write("{not-json");
@@ -1903,24 +1907,24 @@ private slots:
     QVERIFY(!error.isEmpty());
 
     QJsonObject root{{QStringLiteral("format"), QStringLiteral("wrong-format")},
-      {QStringLiteral("version"), 7}, {QStringLiteral("pcd_path"), copied_cloud}};
-    QString project_path = directory.filePath(QStringLiteral("invalid.pcdmeasure"));
+      {QStringLiteral("version"), 8}, {QStringLiteral("cloud_path"), copied_cloud}};
+    QString project_path = directory.filePath(QStringLiteral("invalid.pcworkbench"));
     QVERIFY(write_json(project_path, root));
     QVERIFY(!window_->read_project_file(project_path, &state, &error));
-    root.insert(QStringLiteral("format"), QStringLiteral("pcd-measure-project"));
+    root.insert(QStringLiteral("format"), QStringLiteral("point-cloud-workbench-project"));
+    root.insert(QStringLiteral("version"), 9);
+    QVERIFY(write_json(project_path, root));
+    QVERIFY(!window_->read_project_file(project_path, &state, &error));
+    root.insert(QStringLiteral("version"), 8.5);
+    QVERIFY(write_json(project_path, root));
+    QVERIFY(!window_->read_project_file(project_path, &state, &error));
     root.insert(QStringLiteral("version"), 8);
-    QVERIFY(write_json(project_path, root));
-    QVERIFY(!window_->read_project_file(project_path, &state, &error));
-    root.insert(QStringLiteral("version"), 7.5);
-    QVERIFY(write_json(project_path, root));
-    QVERIFY(!window_->read_project_file(project_path, &state, &error));
-    root.insert(QStringLiteral("version"), 7);
-    root.remove(QStringLiteral("pcd_path"));
+    root.remove(QStringLiteral("cloud_path"));
     QVERIFY(write_json(project_path, root));
     QVERIFY(!window_->read_project_file(project_path, &state, &error));
 
-    root.insert(QStringLiteral("pcd_path"), QStringLiteral("/missing/absolute/cloud.pcd"));
-    root.insert(QStringLiteral("pcd_relative_path"), QStringLiteral("子目录/点 云.pcd"));
+    root.insert(QStringLiteral("cloud_path"), QStringLiteral("/missing/absolute/cloud.pcd"));
+    root.insert(QStringLiteral("cloud_relative_path"), QStringLiteral("子目录/点 云.pcd"));
     QVERIFY(write_json(project_path, root));
     QVERIFY2(window_->read_project_file(project_path, &state, &error), qPrintable(error));
     QCOMPARE(window_->resolve_project_cloud_path(project_path, state, &error),
@@ -2056,15 +2060,16 @@ private slots:
     QVERIFY(unsupported_dismissed);
     QCOMPARE(QFileInfo(window_->current_.path).absoluteFilePath(), QFileInfo(xyz).absoluteFilePath());
 
-    QJsonObject project{{QStringLiteral("format"), QStringLiteral("pcd-measure-project")},
-      {QStringLiteral("version"), 7}, {QStringLiteral("pcd_path"), xyz},
+    QJsonObject project{
+      {QStringLiteral("format"), QStringLiteral("point-cloud-workbench-project")},
+      {QStringLiteral("version"), 8}, {QStringLiteral("cloud_path"), xyz},
       {QStringLiteral("crop"), QJsonObject{{QStringLiteral("active"), true},
         {QStringLiteral("type"), QStringLiteral("derived")},
-        {QStringLiteral("derived_pcd_relative_path"), QStringLiteral("missing-region.pcd")}}},
+        {QStringLiteral("derived_cloud_relative_path"), QStringLiteral("missing-region.pcd")}}},
       {QStringLiteral("comparison"), QJsonObject{{QStringLiteral("active"), true},
         {QStringLiteral("second_path"), QStringLiteral("/missing/second.pcd")},
         {QStringLiteral("second_relative_path"), QStringLiteral("missing-second.pcd")}}}};
-    const QString project_path = directory.filePath(QStringLiteral("missing-parts.pcdmeasure"));
+    const QString project_path = directory.filePath(QStringLiteral("missing-parts.pcworkbench"));
     QFile project_file(project_path);
     QVERIFY(project_file.open(QIODevice::WriteOnly));
     const QByteArray payload = QJsonDocument(project).toJson();
@@ -2178,7 +2183,8 @@ private slots:
     QVERIFY(window_->environment_panel_->environment_table_->width() >= 400);
     window_->switch_workspace(0);
     QVERIFY(window_->cloud_toolbar_->isVisible());
-    const QString output = QString::fromLocal8Bit(qgetenv("PCD_MEASURE_TEST_UI_SCREENSHOT"));
+    const QString output = QString::fromLocal8Bit(
+      qgetenv("POINT_CLOUD_WORKBENCH_TEST_UI_SCREENSHOT"));
     if (!output.isEmpty()) {
       QVERIFY2(window_->grab().save(output, "PNG"), qPrintable(output));
       QVERIFY(QFileInfo(output).size() > 1000);
@@ -2189,7 +2195,7 @@ private slots:
   void cropFullCloudSnapAndViewControls()
   {
     if (actual_pcd_.isEmpty() || !QFileInfo::exists(actual_pcd_)) {
-      QSKIP("PCD_MEASURE_TEST_PCD is not set to an existing cloud");
+      QSKIP("POINT_CLOUD_WORKBENCH_TEST_PCD is not set to an existing cloud");
     }
     QVERIFY2(load(actual_pcd_), "Reference PCD failed to reload");
 
@@ -2264,7 +2270,7 @@ private slots:
   void projectRestore()
   {
     if (actual_pcd_.isEmpty() || !QFileInfo::exists(actual_pcd_)) {
-      QSKIP("PCD_MEASURE_TEST_PCD is not set to an existing cloud");
+      QSKIP("POINT_CLOUD_WORKBENCH_TEST_PCD is not set to an existing cloud");
     }
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -2337,8 +2343,8 @@ int main(int argc, char * argv[])
   QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
   vtkObject::GlobalWarningDisplayOff();
   QApplication app(argc, argv);
-  QCoreApplication::setApplicationName(QStringLiteral("PCD Measure Test"));
-  QCoreApplication::setOrganizationName(QStringLiteral("PCD Tools"));
+  QCoreApplication::setApplicationName(QStringLiteral("Point Cloud Workbench Test"));
+  QCoreApplication::setOrganizationName(QStringLiteral("Point Cloud Workbench"));
   MainWindowTest test;
   return QTest::qExec(&test, argc, argv);
 }

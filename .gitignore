@@ -27,6 +27,7 @@ __pycache__/
 *.db3-wal
 *.mcap
 metadata.yaml
+*.pcworkbench
 *.pcdmeasure
 *.odinpcd
 

@@ -83,7 +83,7 @@ QString rosbag_playback_target(const QString & path, RosbagKind kind)
 
 QString guess_ros_setup_file(const QString & bag_path)
 {
-  const QString configured = qEnvironmentVariable("PCD_MEASURE_ROS_SETUP");
+  const QString configured = qEnvironmentVariable("POINT_CLOUD_WORKBENCH_ROS_SETUP");
   if (QFileInfo(configured).isFile()) return QFileInfo(configured).absoluteFilePath();
 
   QFileInfo input(bag_path);
@@ -98,7 +98,7 @@ QString guess_ros_setup_file(const QString & bag_path)
 
 QString rosbag_project_root()
 {
-  const QString environment_root = qEnvironmentVariable("PCD_MEASURE_PROJECT_DIR");
+  const QString environment_root = qEnvironmentVariable("POINT_CLOUD_WORKBENCH_PROJECT_DIR");
   const QDir application_directory(QCoreApplication::applicationDirPath());
   const QString detected = first_existing_project_root({
     environment_root,
@@ -111,7 +111,7 @@ QString rosbag_project_root()
 
 QString rosbag_python_executable()
 {
-  const QString configured = qEnvironmentVariable("PCD_MEASURE_ROSBAG_PYTHON");
+  const QString configured = qEnvironmentVariable("POINT_CLOUD_WORKBENCH_ROSBAG_PYTHON");
   if (!configured.isEmpty() && QFileInfo(configured).isExecutable()) return configured;
   const QString virtual_environment = QDir(rosbag_project_root()).filePath(
     QStringLiteral(".rosbag-venv/bin/python"));

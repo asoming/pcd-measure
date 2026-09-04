@@ -8,7 +8,7 @@
 
 | 项目 | 说明 |
 | --- | --- |
-| 当前版本 | 2.3.1 |
+| 当前版本 | 2.4.0 |
 | 已验证系统 | Ubuntu 22.04.5 LTS x86_64 |
 | 核心依赖 | Qt 5、PCL、VTK、CMake |
 | 点云输入 | PCD、PLY、MAPV0001 `.bin`、OdinViewer `.olx` |
@@ -101,8 +101,8 @@ ROS 不是点云查看和测量的必需依赖。需要回放 bag 时，再安�
 推荐使用 Git，这样后续可以直接更新：
 
 ```bash
-git clone https://github.com/asoming/pcd-measure.git
-cd pcd-measure
+git clone https://github.com/asoming/point-cloud-workbench.git
+cd point-cloud-workbench
 ```
 
 也可以在 GitHub 页面点击 **Code → Download ZIP**。解压后进入项目文件夹，在空白处右键选择“在终端中打开”。
@@ -127,13 +127,13 @@ chmod +x build.sh run.sh install_desktop.sh scripts/*.sh
 编译默认最多使用 2 个并行任务，避免 PCL/VTK 在内存较小的电脑上并行编译失败。需要手动增加时：
 
 ```bash
-PCD_MEASURE_BUILD_JOBS=4 ./build.sh
+POINT_CLOUD_WORKBENCH_BUILD_JOBS=4 ./build.sh
 ```
 
 如果暂时不需要 ROS bag 深度诊断，或安装时没有网络，可以跳过 Python 可选依赖：
 
 ```bash
-PCD_MEASURE_SKIP_ROSBAG_SETUP=1 ./install_desktop.sh
+POINT_CLOUD_WORKBENCH_SKIP_ROSBAG_SETUP=1 ./install_desktop.sh
 ```
 
 以后需要时再执行：
@@ -145,7 +145,7 @@ PCD_MEASURE_SKIP_ROSBAG_SETUP=1 ./install_desktop.sh
 如果暂时不需要 MAP BIN，可跳过官方转换器下载：
 
 ```bash
-PCD_MEASURE_SKIP_ODIN_MAP_SETUP=1 ./install_desktop.sh
+POINT_CLOUD_WORKBENCH_SKIP_ODIN_MAP_SETUP=1 ./install_desktop.sh
 ```
 
 以后需要时再执行 `./scripts/setup_odin_map_tools.sh`。转换器来自 Manifold 官方文档站，不存入本仓库；安装脚本会拒绝哈希不符的文件。
@@ -167,7 +167,7 @@ PCD_MEASURE_SKIP_ODIN_MAP_SETUP=1 ./install_desktop.sh
 ./run.sh /path/to/cloud.pcd
 ./run.sh /path/to/map.bin
 ./run.sh /path/to/recording.olx
-./run.sh /path/to/project.pcdmeasure
+./run.sh /path/to/project.pcworkbench
 ```
 
 ### 5. 更新已有安装
@@ -175,7 +175,7 @@ PCD_MEASURE_SKIP_ODIN_MAP_SETUP=1 ./install_desktop.sh
 Git 下载方式：
 
 ```bash
-cd /path/to/pcd-measure
+cd /path/to/point-cloud-workbench
 git pull
 ./build.sh
 ./install_desktop.sh
@@ -465,7 +465,7 @@ ICP 只做刚体配准，不会修复尺度错误；两份点云重叠不足、�
 
 ### 工程文件
 
-`.pcdmeasure` 工程会保存：
+`.pcworkbench` 工程会保存：
 
 - 基准点云/OLX 的绝对路径和相对路径。
 - OLX 当前帧、单帧/累计模式、滑动窗口、播放倍率和相机预览状态。
@@ -474,9 +474,9 @@ ICP 只做刚体配准，不会修复尺度错误；两份点云重叠不足、�
 - 当前选区、局部分析、显示原点和累计变换。
 - 第二点云路径、配准矩阵和对比参数。
 
-工程与点云一起移动后，可优先通过相对路径恢复。当前格式版本为 v7，也可以读取 v1–v6 和早期 `.odinpcd` 工程。
+工程与点云一起移动后，可优先通过相对路径恢复。当前格式版本为 v8；旧版 `.pcdmeasure`、`.odinpcd` 和 v1–v7 工程仍可直接读取，重新保存时统一使用 `.pcworkbench`。
 
-派生区域随工程保存时，会生成同名的 `.pcdmeasure.region.pcd` 配套文件；移动工程时需要一起移动。
+派生区域随工程保存时，会生成同名的 `.pcworkbench.region.pcd` 配套文件；移动工程时需要一起移动。
 
 ### 自动恢复
 
@@ -575,11 +575,11 @@ PCD、工程和各类报告使用临时文件与原子提交；写入失败时�
 构建后可直接输出 JSON：
 
 ```bash
-./build/bin/pcd_analyze /path/to/cloud.pcd
-./build/bin/pcd_analyze /path/to/cloud.ply
-./build/bin/pcd_analyze /path/to/map.bin
-./build/bin/pcd_analyze /path/to/recording.olx
-./build/bin/pcd_analyze --max-display-points 100000 /path/to/cloud.pcd
+./build/bin/point_cloud_analyze /path/to/cloud.pcd
+./build/bin/point_cloud_analyze /path/to/cloud.ply
+./build/bin/point_cloud_analyze /path/to/map.bin
+./build/bin/point_cloud_analyze /path/to/recording.olx
+./build/bin/point_cloud_analyze --max-display-points 100000 /path/to/cloud.pcd
 ```
 
 `--max-display-points` 只控制生成显示云的点数，完整统计结果不变。
@@ -595,7 +595,7 @@ PCD、工程和各类报告使用临时文件与原子提交；写入失败时�
 执行诊断并同时导出 JSON/HTML：
 
 ```bash
-PCD_MEASURE_ROS_SETUP=/path/to/robot_ws/install/setup.bash \
+POINT_CLOUD_WORKBENCH_ROS_SETUP=/path/to/robot_ws/install/setup.bash \
   ./scripts/rosbag_diagnose.sh \
   ./.rosbag-venv/bin/python \
   ./tools/rosbag_diagnose.py /path/to/bag \
@@ -717,7 +717,7 @@ PYTHONPATH=tools ./.rosbag-venv/bin/python -m unittest discover \
 程序还能启动时，打开左下角“环境安装”，点击“一键安装所选缺失项”。首次安装或程序无法启动时，重新执行 `./install_desktop.sh`；也可以手动执行“系统要求”中的 `apt install` 命令。如果并行编译被系统终止，使用：
 
 ```bash
-PCD_MEASURE_BUILD_JOBS=1 ./build.sh
+POINT_CLOUD_WORKBENCH_BUILD_JOBS=1 ./build.sh
 ```
 
 ### 点云没有彩色画面
@@ -750,7 +750,7 @@ PCD_MEASURE_BUILD_JOBS=1 ./build.sh
 
 ### 工程打开后找不到点云
 
-把 PCD 和 `.pcdmeasure` 恢复到保存时的相对位置。如果工程使用派生区域，还要带上 `.pcdmeasure.region.pcd` 配套文件。
+把点云和 `.pcworkbench` 恢复到保存时的相对位置。如果工程使用派生区域，还要带上 `.pcworkbench.region.pcd` 配套文件。旧版 `.pcdmeasure` 和 `.odinpcd` 也可以继续打开。
 
 ### ICP 失败或结果明显错误
 
@@ -773,7 +773,7 @@ PCD_MEASURE_BUILD_JOBS=1 ./build.sh
 程序会优先调用桌面设置中的默认网页浏览器，并在 HTML 文件关联错误时直接回退到 Edge、Chrome、Firefox 或 Chromium。更新程序后请先关闭旧窗口再重新双击桌面图标。仍无法启动浏览器时，可点击“导出 HTML 报告”后从文件管理器打开，或指定浏览器再启动：
 
 ```bash
-PCD_MEASURE_HTML_OPENER=/usr/bin/firefox ./run.sh
+POINT_CLOUD_WORKBENCH_HTML_OPENER=/usr/bin/firefox ./run.sh
 ```
 
 ### 回放后节点收不到话题

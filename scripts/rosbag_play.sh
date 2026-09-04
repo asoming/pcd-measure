@@ -33,9 +33,9 @@ source_if_present() {
   return 1
 }
 
-if [[ -n "${PCD_MEASURE_ROS_SETUP:-}" ]]; then
-  source_if_present "${PCD_MEASURE_ROS_SETUP}" || {
-    echo "指定的 ROS 环境脚本不存在：${PCD_MEASURE_ROS_SETUP}" >&2
+if [[ -n "${POINT_CLOUD_WORKBENCH_ROS_SETUP:-}" ]]; then
+  source_if_present "${POINT_CLOUD_WORKBENCH_ROS_SETUP}" || {
+    echo "指定的 ROS 环境脚本不存在：${POINT_CLOUD_WORKBENCH_ROS_SETUP}" >&2
     exit 3
   }
 fi

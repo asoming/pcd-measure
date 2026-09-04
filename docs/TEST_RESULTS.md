@@ -1,8 +1,8 @@
-# 点云工作台 2.3 测试结果
+# 点云工作台 2.4 测试结果
 
 最后验收日期：2026-09-04
 
-本报告对应 `docs/TEST_PLAN.md` 中的逐项计划。版本 2.3.1 的自动测试、真实地图、真实 Odin1 OLX 录制与累计建图预览、真实 ROS2 bag 回归、环境安装安全分支和界面视觉检查均通过。
+本报告对应 `docs/TEST_PLAN.md` 中的逐项计划。版本 2.4.0 的自动测试、真实地图、真实 Odin1 OLX 录制与累计建图预览、真实 ROS2 bag 回归、环境安装安全分支和界面视觉检查均通过。
 
 ## 1. 测试环境
 
@@ -19,27 +19,27 @@
 
 ## 2. 自动测试结果
 
-`ctest --test-dir build --output-on-failure` 结果：13/13 测试套件通过，0 失败，最新总耗时 29.14 s。使用项目内 `.rosbag-venv` 后，ROS bag Python 诊断测试 37/37 通过；不安装可选读取器时，ROS1/MCAP/压缩专项会跳过，ROS2 SQLite 基础测试继续执行。带真实地图运行 `pcd_gui_test` 为 28 通过、0 失败、0 跳过；安装/打包脚本套件同时通过。
+`ctest --test-dir build --output-on-failure` 结果：13/13 测试套件通过，0 失败，最新总耗时 29.94 s。使用项目内 `.rosbag-venv` 后，ROS bag Python 诊断测试 37/37 通过；不安装可选读取器时，ROS1/MCAP/压缩专项会跳过，ROS2 SQLite 基础测试继续执行。带真实地图运行 `point_cloud_workbench_gui_test` 为 28 通过、0 失败、0 跳过；安装/打包脚本套件同时通过。
 
 额外用 `-fsanitize=undefined -fno-sanitize-recover=undefined` 重新编译并运行了点云、测量、分析、对比和变换 5 个核心套件，48 项通过，未检出未定义行为。
-加入 PLY/MAP BIN/OLX 后，又单独对新版 `pcd_cloud_data_test` 做 UBSan 构建，14/14 通过。
+加入 PLY/MAP BIN/OLX 后，又单独对新版 `cloud_data_test` 做 UBSan 构建，14/14 通过。
 为排查偶发问题，5 个核心套件各连续运行 20 次，GUI 套件连续运行 5 次，全部通过。
 
 | 测试套件 | 覆盖范围 | 结果 |
 | --- | --- | --- |
-| `pcd_rosbag_python_test` | ROS1/ROS2 SQLite/压缩/MCAP、多分片、仿真时钟、时序、QoS、TF、传感器、报告与异常输入 | 完整环境 37 通过 |
-| `pcd_olx_record_python_test` | PointCloud2 字节序/行填充、intensity、RGB/RGBA、坏帧、位姿、图像、累计/当前帧预览、体素去重、显示上限、最终刷新、无 NumPy 回退和会话校验 | 17 通过 |
-| `pcd_rosbag_tools_test` | 格式识别、压缩扩展名、setup 自动发现、回放参数和报告摘要 | 6 通过 |
-| `pcd_rosbag_dialog_test` | 输入状态、异步诊断、报告填充、完整报告浏览器启动、回放暂停/继续/停止和科技风布局 | 6 通过 |
-| `pcd_rosbag_playback_test` | ROS1/ROS2 命令、倍率、循环、`/clock`、自定义环境、特殊路径和失败参数 | 通过 |
-| `pcd_cloud_data_test` | PCD/PLY/MAP BIN/OLX 识别、15/16 B 点记录、配套数据、截断、NaN/Inf、LOD、稳健尺寸和 JSON | 通过 |
-| `pcd_measurement_test` | 8 类测量、退化几何、符号/边界、序列化 | 10 通过 |
-| `pcd_analysis_tools_test` | 框/套索选区、PCA、直方图、剖面、体积、SOR、RANSAC | 11 通过 |
-| `pcd_comparison_tools_test` | 直接差异、ICP、无重叠、阈值、热力图、LOD、导出 | 10 通过 |
-| `pcd_transform_tools_test` | 平移、Z 旋转、尺度、测量同步变换、逆变换、矩阵导出 | 8 通过 |
-| `pcd_gui_test` | 完整 GUI/工程流程，包含多格式/工程/bag 拖放、四工作台切换、OLX 时间轴、实时设备画面、环境安装安全、恢复、输出、布局和真实地图 | 真实地图环境 28 通过 |
-| `pcd_real_workflow_test` | 151 万点的选区、直方图、剖面、体积、清理、平面、ICP、导出 | 3 通过 |
-| `pcd_packaging_test` | Shell 语法、系统包固定白名单、自检、CLI 参数、桌面图标、应用菜单、产品名、README 步骤 | 通过 |
+| `rosbag_python_test` | ROS1/ROS2 SQLite/压缩/MCAP、多分片、仿真时钟、时序、QoS、TF、传感器、报告与异常输入 | 完整环境 37 通过 |
+| `olx_record_python_test` | PointCloud2 字节序/行填充、intensity、RGB/RGBA、坏帧、位姿、图像、累计/当前帧预览、体素去重、显示上限、最终刷新、无 NumPy 回退和会话校验 | 17 通过 |
+| `rosbag_tools_test` | 格式识别、压缩扩展名、setup 自动发现、回放参数和报告摘要 | 6 通过 |
+| `rosbag_dialog_test` | 输入状态、异步诊断、报告填充、完整报告浏览器启动、回放暂停/继续/停止和科技风布局 | 6 通过 |
+| `rosbag_playback_test` | ROS1/ROS2 命令、倍率、循环、`/clock`、自定义环境、特殊路径和失败参数 | 通过 |
+| `cloud_data_test` | PCD/PLY/MAP BIN/OLX 识别、15/16 B 点记录、配套数据、截断、NaN/Inf、LOD、稳健尺寸和 JSON | 通过 |
+| `measurement_test` | 8 类测量、退化几何、符号/边界、序列化 | 10 通过 |
+| `analysis_tools_test` | 框/套索选区、PCA、直方图、剖面、体积、SOR、RANSAC | 11 通过 |
+| `comparison_tools_test` | 直接差异、ICP、无重叠、阈值、热力图、LOD、导出 | 10 通过 |
+| `transform_tools_test` | 平移、Z 旋转、尺度、测量同步变换、逆变换、矩阵导出 | 8 通过 |
+| `point_cloud_workbench_gui_test` | 完整 GUI/工程流程，包含多格式/工程/bag 拖放、四工作台切换、OLX 时间轴、实时设备画面、环境安装安全、恢复、输出、布局和真实地图 | 真实地图环境 28 通过 |
+| `real_workflow_test` | 151 万点的选区、直方图、剖面、体积、清理、平面、ICP、导出 | 3 通过 |
+| `packaging_test` | Shell 语法、系统包固定白名单、自检、CLI 参数、桌面图标、应用菜单、产品名、README 步骤 | 通过 |
 
 QtTest 的数量包含每个可执行程序的初始化和清理项；功能断言则完整对应测试计划中的 ID。
 
@@ -62,7 +62,7 @@ QtTest 的数量包含每个可执行程序的初始化和清理项；功能断�
 | 显示上限 750,000 | 实际显示 504,878 |
 | CLI 750k 分析耗时 | 1.19 s |
 | CLI 分析峰值常驻内存 | 258,088 KiB |
-| 完整 GUI 回归 | 28 通过，19.74 s |
+| 完整 GUI 回归 | 28 通过，20.58 s |
 | 真实工作流 | 3 通过，5.72 s |
 
 真实工作流还会记录源 PCD 文件大小，并在选区、分析、变换、ICP 和导出后再次检查，确认程序没有覆盖源文件。

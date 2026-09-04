@@ -108,6 +108,13 @@ constexpr const char * kAxesId = "coordinate_axes";
 constexpr const char * kComparisonCloudId = "comparison_cloud";
 constexpr const char * kContextCloudId = "context_cloud";
 
+bool is_project_file_suffix(const QString & suffix)
+{
+  return suffix.compare(QStringLiteral("pcworkbench"), Qt::CaseInsensitive) == 0 ||
+    suffix.compare(QStringLiteral("pcdmeasure"), Qt::CaseInsensitive) == 0 ||
+    suffix.compare(QStringLiteral("odinpcd"), Qt::CaseInsensitive) == 0;
+}
+
 struct ComparisonJobOutput
 {
   CloudLoadResult second;
@@ -1195,7 +1202,7 @@ void MainWindow::build_interface()
   rail_layout->addWidget(rosbag_workspace_button_);
   rail_layout->addStretch(1);
   rail_layout->addWidget(environment_workspace_button_);
-  auto * version = new QLabel(QStringLiteral("LOCAL WORKSPACE\nv2.3.1"), rail);
+  auto * version = new QLabel(QStringLiteral("LOCAL WORKSPACE\nv2.4.0"), rail);
   version->setObjectName(QStringLiteral("workspaceVersion"));
   version->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
   rail_layout->addWidget(version);
@@ -1217,7 +1224,7 @@ void MainWindow::initialize_viewer()
   render_window_->AddRenderer(renderer_);
 
   viewer_.reset(new pcl::visualization::PCLVisualizer(
-    renderer_, render_window_, "PCD Measure", false));
+    renderer_, render_window_, "Point Cloud Workbench", false));
   vtk_widget_->setRenderWindow(render_window_);
   viewer_->setupInteractor(vtk_widget_->interactor(), vtk_widget_->renderWindow());
   viewer_->setBackgroundColor(7.0 / 255.0, 19.0 / 255.0, 29.0 / 255.0);
@@ -1305,13 +1312,13 @@ void MainWindow::add_recent_file(const QString & path)
 {
   const QString absolute_path = QFileInfo(path).absoluteFilePath();
   QSettings settings;
-  QStringList recent = settings.value(QStringLiteral("recentPcdFiles")).toStringList();
+  QStringList recent = settings.value(QStringLiteral("recentCloudFiles")).toStringList();
   recent.removeAll(absolute_path);
   recent.prepend(absolute_path);
   while (recent.size() > 8) {
     recent.removeLast();
   }
-  settings.setValue(QStringLiteral("recentPcdFiles"), recent);
+  settings.setValue(QStringLiteral("recentCloudFiles"), recent);
   rebuild_recent_menu();
 }
 
@@ -1322,7 +1329,7 @@ void MainWindow::rebuild_recent_menu()
   }
   recent_menu_->clear();
   QSettings settings;
-  const QStringList stored = settings.value(QStringLiteral("recentPcdFiles")).toStringList();
+  const QStringList stored = settings.value(QStringLiteral("recentCloudFiles")).toStringList();
   QStringList valid;
   for (const QString & stored_path : stored) {
     const QString path = QFileInfo(stored_path).absoluteFilePath();
@@ -1338,7 +1345,7 @@ void MainWindow::rebuild_recent_menu()
       begin_load(path);
     });
   }
-  settings.setValue(QStringLiteral("recentPcdFiles"), valid);
+  settings.setValue(QStringLiteral("recentCloudFiles"), valid);
   if (valid.isEmpty()) {
     QAction * empty_action = recent_menu_->addAction(QStringLiteral("暂无最近文件"));
     empty_action->setEnabled(false);
@@ -3375,7 +3382,7 @@ bool MainWindow::write_cloud_file(
     if (error) *error = QStringLiteral("PCD 导出目录不存在：%1").arg(parent.absolutePath());
     return false;
   }
-  QTemporaryFile temporary(parent.filePath(QStringLiteral(".pcd-measure-XXXXXX.pcd")));
+  QTemporaryFile temporary(parent.filePath(QStringLiteral(".point-cloud-workbench-XXXXXX.pcd")));
   temporary.setAutoRemove(true);
   if (!temporary.open()) {
     if (error) *error = QStringLiteral("无法在目标目录创建 PCD 临时文件。");
@@ -4175,7 +4182,7 @@ void MainWindow::open_cloud_comparison()
   path_layout->setContentsMargins(0, 0, 0, 0);
   auto * path_edit = new QLineEdit;
   path_edit->setObjectName(QStringLiteral("comparisonPathEdit"));
-  const QString recent = QSettings().value(QStringLiteral("lastComparisonPcd")).toString();
+  const QString recent = QSettings().value(QStringLiteral("lastComparisonCloud")).toString();
   if (QFileInfo::exists(recent)) path_edit->setText(recent);
   auto * browse = new QPushButton(QStringLiteral("选择…"));
   path_layout->addWidget(path_edit, 1);
@@ -4290,7 +4297,7 @@ void MainWindow::open_cloud_comparison()
     QMessageBox::warning(this, QStringLiteral("点云对比失败"), output.comparison.error);
     return;
   }
-  QSettings().setValue(QStringLiteral("lastComparisonPcd"), second_path);
+  QSettings().setValue(QStringLiteral("lastComparisonCloud"), second_path);
   set_cloud_comparison(second_path, options, opacity->value(), output.comparison);
   show_comparison_summary();
 }
@@ -5328,8 +5335,10 @@ void MainWindow::open_project()
     (current_path_.isEmpty() ? QDir::homePath() : QFileInfo(current_path_).absolutePath()) :
     QFileInfo(pending_project_path_).absolutePath();
   const QString path = QFileDialog::getOpenFileName(
-    this, QStringLiteral("打开点云测量工程"), initial_directory,
-    QStringLiteral("点云测量工程 (*.pcdmeasure *.odinpcd);;JSON 文件 (*.json);;所有文件 (*)"));
+    this, QStringLiteral("打开点云工作台工程"), initial_directory,
+    QStringLiteral(
+      "点云工作台工程 (*.pcworkbench);;旧版工程 (*.pcdmeasure *.odinpcd);;"
+      "JSON 文件 (*.json);;所有文件 (*)"));
   if (path.isEmpty()) {
     return;
   }
@@ -5345,8 +5354,8 @@ void MainWindow::open_project_path(const QString & path)
     QMessageBox::critical(this, QStringLiteral("工程格式错误"), error);
     return;
   }
-  const QString pcd_path = resolve_project_cloud_path(path, root, &error);
-  if (pcd_path.isEmpty()) {
+  const QString cloud_path = resolve_project_cloud_path(path, root, &error);
+  if (cloud_path.isEmpty()) {
     QMessageBox::critical(this, QStringLiteral("找不到点云"), error);
     return;
   }
@@ -5354,7 +5363,7 @@ void MainWindow::open_project_path(const QString & path)
   pending_project_state_ = root;
   pending_project_path_ = QFileInfo(path).absoluteFilePath();
   if (pending_project_path_ != auto_recovery_path()) add_recent_project(pending_project_path_);
-  begin_load(pcd_path);
+  begin_load(cloud_path);
 }
 
 bool MainWindow::read_project_file(
@@ -5379,18 +5388,20 @@ bool MainWindow::read_project_file(
   }
   const QJsonObject root = document.object();
   const QString format = root.value(QStringLiteral("format")).toString();
-  if (!format.isEmpty() && format != QStringLiteral("pcd-measure-project")) {
-    if (error) *error = QStringLiteral("不是受支持的点云测量工程：%1").arg(format);
+  if (!format.isEmpty() && format != QStringLiteral("point-cloud-workbench-project") &&
+    format != QStringLiteral("pcd-measure-project"))
+  {
+    if (error) *error = QStringLiteral("不是受支持的点云工作台工程：%1").arg(format);
     return false;
   }
   if (root.contains(QStringLiteral("version"))) {
     const QJsonValue version_value = root.value(QStringLiteral("version"));
     const int version = version_value.isDouble() ? version_value.toInt(-1) : -1;
-    if (version < 1 || version > 7 ||
+    if (version < 1 || version > 8 ||
       std::abs(version_value.toDouble(-1.0) - static_cast<double>(version)) > 1e-9)
     {
       if (error) {
-        *error = QStringLiteral("工程版本 %1 不受支持；当前支持 v1–v7。")
+        *error = QStringLiteral("工程版本 %1 不受支持；当前支持 v1–v8。")
           .arg(version_value.toVariant().toString());
       }
       return false;
@@ -5427,7 +5438,9 @@ bool MainWindow::read_project_file(
       return false;
     }
   }
-  if (root.value(QStringLiteral("pcd_path")).toString().trimmed().isEmpty() &&
+  if (root.value(QStringLiteral("cloud_path")).toString().trimmed().isEmpty() &&
+    root.value(QStringLiteral("cloud_relative_path")).toString().trimmed().isEmpty() &&
+    root.value(QStringLiteral("pcd_path")).toString().trimmed().isEmpty() &&
     root.value(QStringLiteral("pcd_relative_path")).toString().trimmed().isEmpty())
   {
     if (error) *error = QStringLiteral("工程中缺少点云文件路径。");
@@ -5443,9 +5456,15 @@ QString MainWindow::resolve_project_cloud_path(
   QString * error) const
 {
   const QDir project_directory(QFileInfo(project_path).absolutePath());
-  const QString stored_path = state.value(QStringLiteral("pcd_path")).toString().trimmed();
-  const QString relative_path = state.value(QStringLiteral("pcd_relative_path"))
+  QString stored_path = state.value(QStringLiteral("cloud_path")).toString().trimmed();
+  QString relative_path = state.value(QStringLiteral("cloud_relative_path"))
     .toString().trimmed();
+  if (stored_path.isEmpty()) {
+    stored_path = state.value(QStringLiteral("pcd_path")).toString().trimmed();
+  }
+  if (relative_path.isEmpty()) {
+    relative_path = state.value(QStringLiteral("pcd_relative_path")).toString().trimmed();
+  }
   QStringList candidates;
   if (!stored_path.isEmpty()) {
     candidates.append(QFileInfo(stored_path).isAbsolute() ? stored_path :
@@ -5472,10 +5491,10 @@ QString MainWindow::resolve_project_cloud_path(
 QJsonObject MainWindow::build_project_state(const QString & project_path) const
 {
   QJsonObject root;
-  root.insert(QStringLiteral("format"), QStringLiteral("pcd-measure-project"));
-  root.insert(QStringLiteral("version"), 7);
-  root.insert(QStringLiteral("pcd_path"), current_.path);
-  root.insert(QStringLiteral("pcd_relative_path"),
+  root.insert(QStringLiteral("format"), QStringLiteral("point-cloud-workbench-project"));
+  root.insert(QStringLiteral("version"), 8);
+  root.insert(QStringLiteral("cloud_path"), current_.path);
+  root.insert(QStringLiteral("cloud_relative_path"),
     QDir(QFileInfo(project_path).absolutePath()).relativeFilePath(current_.path));
   root.insert(QStringLiteral("saved_at"), QDateTime::currentDateTime().toString(Qt::ISODate));
 
@@ -5545,7 +5564,7 @@ QJsonObject MainWindow::build_project_state(const QString & project_path) const
     } else {
       crop.insert(QStringLiteral("type"), QStringLiteral("derived"));
       const QString companion = QFileInfo(project_path).fileName() + QStringLiteral(".region.pcd");
-      crop.insert(QStringLiteral("derived_pcd_relative_path"), companion);
+      crop.insert(QStringLiteral("derived_cloud_relative_path"), companion);
     }
   }
   root.insert(QStringLiteral("crop"), crop);
@@ -5637,17 +5656,23 @@ void MainWindow::save_project()
     return;
   }
   const QFileInfo cloud_info(current_.path);
-  const QString suggested = pending_project_path_.isEmpty() ?
-    cloud_info.absolutePath() + QDir::separator() + cloud_info.completeBaseName() +
-      QStringLiteral(".pcdmeasure") : pending_project_path_;
+  QString suggested = cloud_info.absolutePath() + QDir::separator() +
+    cloud_info.completeBaseName() + QStringLiteral(".pcworkbench");
+  if (!pending_project_path_.isEmpty()) {
+    const QFileInfo pending_info(pending_project_path_);
+    suggested = pending_info.suffix().compare(
+      QStringLiteral("pcworkbench"), Qt::CaseInsensitive) == 0 ?
+      pending_project_path_ : pending_info.absolutePath() + QDir::separator() +
+        pending_info.completeBaseName() + QStringLiteral(".pcworkbench");
+  }
   QString path = QFileDialog::getSaveFileName(
-    this, QStringLiteral("保存点云测量工程"), suggested,
-    QStringLiteral("点云测量工程 (*.pcdmeasure)"));
+    this, QStringLiteral("保存点云工作台工程"), suggested,
+    QStringLiteral("点云工作台工程 (*.pcworkbench)"));
   if (path.isEmpty()) {
     return;
   }
-  if (!path.endsWith(QStringLiteral(".pcdmeasure"), Qt::CaseInsensitive)) {
-    path += QStringLiteral(".pcdmeasure");
+  if (!path.endsWith(QStringLiteral(".pcworkbench"), Qt::CaseInsensitive)) {
+    path += QStringLiteral(".pcworkbench");
   }
 
   QString error;
@@ -5664,7 +5689,7 @@ void MainWindow::save_project()
 QString MainWindow::auto_recovery_path() const
 {
   const QString directory = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-  return QDir(directory).filePath(QStringLiteral("session-recovery.pcdmeasure"));
+  return QDir(directory).filePath(QStringLiteral("session-recovery.pcworkbench"));
 }
 
 void MainWindow::write_auto_recovery()
@@ -5916,7 +5941,10 @@ void MainWindow::restore_pending_project()
       selection.inverted = crop.value(QStringLiteral("inverted")).toBool(false);
       crop_restored = apply_polygon_crop(selection, false);
     } else if (type == QStringLiteral("derived")) {
-      const QString relative = crop.value(QStringLiteral("derived_pcd_relative_path")).toString();
+      QString relative = crop.value(QStringLiteral("derived_cloud_relative_path")).toString();
+      if (relative.isEmpty()) {
+        relative = crop.value(QStringLiteral("derived_pcd_relative_path")).toString();
+      }
       const QString path = QDir(QFileInfo(pending_project_path_).absolutePath()).absoluteFilePath(relative);
       if (!relative.isEmpty() && QFileInfo::exists(path)) {
         const CloudLoadResult derived = load_pcd_and_analyze(path);
@@ -6565,7 +6593,7 @@ bool MainWindow::write_pdf_report(const QString & path, QString * error) const
     return false;
   }
   QTemporaryFile temporary(
-    target.absoluteDir().filePath(QStringLiteral(".pcd-measure-report-XXXXXX.pdf")));
+    target.absoluteDir().filePath(QStringLiteral(".point-cloud-workbench-report-XXXXXX.pdf")));
   temporary.setAutoRemove(true);
   if (!temporary.open()) {
     if (error) *error = QStringLiteral("无法在目标目录创建 PDF 临时文件。");
@@ -6656,8 +6684,7 @@ void MainWindow::dragEnterEvent(QDragEnterEvent * event)
     const QString suffix = QFileInfo(url.toLocalFile()).suffix();
     if (url.isLocalFile() && (detect_rosbag_kind(url.toLocalFile()) != RosbagKind::Unknown ||
       is_supported_cloud_file(url.toLocalFile()) ||
-      suffix.compare(QStringLiteral("pcdmeasure"), Qt::CaseInsensitive) == 0 ||
-      suffix.compare(QStringLiteral("odinpcd"), Qt::CaseInsensitive) == 0)) {
+      is_project_file_suffix(suffix))) {
       event->acceptProposedAction();
       return;
     }
@@ -6674,8 +6701,7 @@ void MainWindow::dropEvent(QDropEvent * event)
       open_rosbag_dialog(path);
       return;
     }
-    if (!path.isEmpty() && (suffix.compare(QStringLiteral("pcdmeasure"), Qt::CaseInsensitive) == 0 ||
-      suffix.compare(QStringLiteral("odinpcd"), Qt::CaseInsensitive) == 0)) {
+    if (!path.isEmpty() && is_project_file_suffix(suffix)) {
       event->acceptProposedAction();
       open_project_path(path);
       return;

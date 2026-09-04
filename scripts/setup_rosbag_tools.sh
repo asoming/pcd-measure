@@ -2,8 +2,8 @@
 set -euo pipefail
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-python_command="${PCD_MEASURE_SYSTEM_PYTHON:-python3}"
-environment_dir="${PCD_MEASURE_ROSBAG_VENV:-${project_dir}/.rosbag-venv}"
+python_command="${POINT_CLOUD_WORKBENCH_SYSTEM_PYTHON:-python3}"
+environment_dir="${POINT_CLOUD_WORKBENCH_ROSBAG_VENV:-${project_dir}/.rosbag-venv}"
 
 if ! command -v "${python_command}" >/dev/null 2>&1; then
   echo "没有找到 Python 3：${python_command}" >&2

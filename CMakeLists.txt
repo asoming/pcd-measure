@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(pcd_measure VERSION 2.3.1 LANGUAGES C CXX)
+project(point_cloud_workbench VERSION 2.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,7 +24,7 @@ find_package(VTK REQUIRED COMPONENTS
 
 add_definitions(${PCL_DEFINITIONS})
 
-add_library(pcd_cloud_core STATIC
+add_library(point_cloud_core STATIC
   src/cloud_data.cpp
   src/cloud_data.h
   src/analysis_tools.cpp
@@ -38,17 +38,17 @@ add_library(pcd_cloud_core STATIC
   src/transform_tools.cpp
   src/transform_tools.h
 )
-target_include_directories(pcd_cloud_core PUBLIC
+target_include_directories(point_cloud_core PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
   ${PCL_INCLUDE_DIRS}
 )
-target_link_libraries(pcd_cloud_core PUBLIC
+target_link_libraries(point_cloud_core PUBLIC
   Qt5::Core
   ${PCL_LIBRARIES}
 )
-target_compile_options(pcd_cloud_core PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_options(point_cloud_core PRIVATE -Wall -Wextra -Wpedantic)
 
-add_executable(pcd_measure
+add_executable(point_cloud_workbench
   src/main.cpp
   src/environment_setup_panel.cpp
   src/environment_setup_panel.h
@@ -61,32 +61,32 @@ add_executable(pcd_measure
   src/rosbag_dialog.cpp
   src/rosbag_dialog.h
 )
-target_include_directories(pcd_measure PRIVATE
+target_include_directories(point_cloud_workbench PRIVATE
   ${PCL_INCLUDE_DIRS}
   ${VTK_INCLUDE_DIRS}
 )
-target_link_libraries(pcd_measure PRIVATE
-  pcd_cloud_core
+target_link_libraries(point_cloud_workbench PRIVATE
+  point_cloud_core
   Qt5::Widgets
   Qt5::Concurrent
   Qt5::PrintSupport
   ${PCL_LIBRARIES}
   ${VTK_LIBRARIES}
 )
-target_compile_options(pcd_measure PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_options(point_cloud_workbench PRIVATE -Wall -Wextra -Wpedantic)
 
-add_executable(pcd_analyze src/analyze_cli.cpp)
-target_link_libraries(pcd_analyze PRIVATE pcd_cloud_core Qt5::Core)
-target_compile_options(pcd_analyze PRIVATE -Wall -Wextra -Wpedantic)
+add_executable(point_cloud_analyze src/analyze_cli.cpp)
+target_link_libraries(point_cloud_analyze PRIVATE point_cloud_core Qt5::Core)
+target_compile_options(point_cloud_analyze PRIVATE -Wall -Wextra -Wpedantic)
 
 if(COMMAND vtk_module_autoinit)
   vtk_module_autoinit(
-    TARGETS pcd_measure
+    TARGETS point_cloud_workbench
     MODULES ${VTK_LIBRARIES}
   )
 endif()
 
-install(TARGETS pcd_measure pcd_analyze
+install(TARGETS point_cloud_workbench point_cloud_analyze
   RUNTIME DESTINATION bin
 )
 
@@ -95,7 +95,7 @@ if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
   add_test(
-    NAME pcd_rosbag_python_test
+    NAME rosbag_python_test
     COMMAND ${CMAKE_COMMAND} -E env
       "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/tools"
       "${Python3_EXECUTABLE}" -m unittest discover
@@ -104,7 +104,7 @@ if(BUILD_TESTING)
   )
 
   add_test(
-    NAME pcd_olx_record_python_test
+    NAME olx_record_python_test
     COMMAND ${CMAKE_COMMAND} -E env
       "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/tools"
       "${Python3_EXECUTABLE}" -m unittest discover
@@ -112,118 +112,118 @@ if(BUILD_TESTING)
       -p "test_*.py"
   )
 
-  add_executable(pcd_rosbag_tools_test tests/rosbag_tools_test.cpp)
-  target_include_directories(pcd_rosbag_tools_test PRIVATE
+  add_executable(rosbag_tools_test tests/rosbag_tools_test.cpp)
+  target_include_directories(rosbag_tools_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
   )
-  target_link_libraries(pcd_rosbag_tools_test PRIVATE
-    pcd_cloud_core
+  target_link_libraries(rosbag_tools_test PRIVATE
+    point_cloud_core
     Qt5::Test
   )
-  target_compile_options(pcd_rosbag_tools_test PRIVATE -Wall -Wextra -Wpedantic)
-  add_test(NAME pcd_rosbag_tools_test COMMAND pcd_rosbag_tools_test)
+  target_compile_options(rosbag_tools_test PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME rosbag_tools_test COMMAND rosbag_tools_test)
 
-  add_executable(pcd_rosbag_dialog_test
+  add_executable(rosbag_dialog_test
     tests/rosbag_dialog_test.cpp
     src/rosbag_dialog.cpp
     src/rosbag_dialog.h
   )
-  target_compile_definitions(pcd_rosbag_dialog_test PRIVATE
-    PCD_MEASURE_TEST_PROJECT_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+  target_compile_definitions(rosbag_dialog_test PRIVATE
+    POINT_CLOUD_WORKBENCH_TEST_PROJECT_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
   )
-  target_include_directories(pcd_rosbag_dialog_test PRIVATE
+  target_include_directories(rosbag_dialog_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
   )
-  target_link_libraries(pcd_rosbag_dialog_test PRIVATE
-    pcd_cloud_core
+  target_link_libraries(rosbag_dialog_test PRIVATE
+    point_cloud_core
     Qt5::Widgets
     Qt5::Test
   )
-  target_compile_options(pcd_rosbag_dialog_test PRIVATE -Wall -Wextra -Wpedantic)
-  add_test(NAME pcd_rosbag_dialog_test COMMAND pcd_rosbag_dialog_test)
+  target_compile_options(rosbag_dialog_test PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME rosbag_dialog_test COMMAND rosbag_dialog_test)
 
   add_test(
-    NAME pcd_rosbag_playback_test
+    NAME rosbag_playback_test
     COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/rosbag_playback_test.sh"
       "${CMAKE_CURRENT_SOURCE_DIR}"
   )
 
-  add_executable(pcd_real_workflow_test tests/real_workflow_test.cpp)
-  target_include_directories(pcd_real_workflow_test PRIVATE
+  add_executable(real_workflow_test tests/real_workflow_test.cpp)
+  target_include_directories(real_workflow_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     ${PCL_INCLUDE_DIRS}
   )
-  target_link_libraries(pcd_real_workflow_test PRIVATE
-    pcd_cloud_core
+  target_link_libraries(real_workflow_test PRIVATE
+    point_cloud_core
     Qt5::Test
   )
-  target_compile_options(pcd_real_workflow_test PRIVATE -Wall -Wextra -Wpedantic)
-  add_test(NAME pcd_real_workflow_test COMMAND pcd_real_workflow_test)
+  target_compile_options(real_workflow_test PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME real_workflow_test COMMAND real_workflow_test)
 
-  add_executable(pcd_cloud_data_test tests/cloud_data_test.cpp)
-  target_compile_definitions(pcd_cloud_data_test PRIVATE
-    PCD_MEASURE_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
+  add_executable(cloud_data_test tests/cloud_data_test.cpp)
+  target_compile_definitions(cloud_data_test PRIVATE
+    POINT_CLOUD_WORKBENCH_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
   )
-  target_include_directories(pcd_cloud_data_test PRIVATE
+  target_include_directories(cloud_data_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     ${PCL_INCLUDE_DIRS}
   )
-  target_link_libraries(pcd_cloud_data_test PRIVATE
-    pcd_cloud_core
+  target_link_libraries(cloud_data_test PRIVATE
+    point_cloud_core
     Qt5::Test
   )
-  target_compile_options(pcd_cloud_data_test PRIVATE -Wall -Wextra -Wpedantic)
-  add_test(NAME pcd_cloud_data_test COMMAND pcd_cloud_data_test)
+  target_compile_options(cloud_data_test PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME cloud_data_test COMMAND cloud_data_test)
 
-  add_executable(pcd_transform_tools_test tests/transform_tools_test.cpp)
-  target_include_directories(pcd_transform_tools_test PRIVATE
+  add_executable(transform_tools_test tests/transform_tools_test.cpp)
+  target_include_directories(transform_tools_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     ${PCL_INCLUDE_DIRS}
   )
-  target_link_libraries(pcd_transform_tools_test PRIVATE
-    pcd_cloud_core
+  target_link_libraries(transform_tools_test PRIVATE
+    point_cloud_core
     Qt5::Test
   )
-  target_compile_options(pcd_transform_tools_test PRIVATE -Wall -Wextra -Wpedantic)
-  add_test(NAME pcd_transform_tools_test COMMAND pcd_transform_tools_test)
+  target_compile_options(transform_tools_test PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME transform_tools_test COMMAND transform_tools_test)
 
-  add_executable(pcd_comparison_tools_test tests/comparison_tools_test.cpp)
-  target_include_directories(pcd_comparison_tools_test PRIVATE
+  add_executable(comparison_tools_test tests/comparison_tools_test.cpp)
+  target_include_directories(comparison_tools_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     ${PCL_INCLUDE_DIRS}
   )
-  target_link_libraries(pcd_comparison_tools_test PRIVATE
-    pcd_cloud_core
+  target_link_libraries(comparison_tools_test PRIVATE
+    point_cloud_core
     Qt5::Test
   )
-  target_compile_options(pcd_comparison_tools_test PRIVATE -Wall -Wextra -Wpedantic)
-  add_test(NAME pcd_comparison_tools_test COMMAND pcd_comparison_tools_test)
+  target_compile_options(comparison_tools_test PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME comparison_tools_test COMMAND comparison_tools_test)
 
-  add_executable(pcd_analysis_tools_test tests/analysis_tools_test.cpp)
-  target_include_directories(pcd_analysis_tools_test PRIVATE
+  add_executable(analysis_tools_test tests/analysis_tools_test.cpp)
+  target_include_directories(analysis_tools_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     ${PCL_INCLUDE_DIRS}
   )
-  target_link_libraries(pcd_analysis_tools_test PRIVATE
-    pcd_cloud_core
+  target_link_libraries(analysis_tools_test PRIVATE
+    point_cloud_core
     Qt5::Test
   )
-  target_compile_options(pcd_analysis_tools_test PRIVATE -Wall -Wextra -Wpedantic)
-  add_test(NAME pcd_analysis_tools_test COMMAND pcd_analysis_tools_test)
+  target_compile_options(analysis_tools_test PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME analysis_tools_test COMMAND analysis_tools_test)
 
-  add_executable(pcd_measurement_test tests/measurement_test.cpp)
-  target_include_directories(pcd_measurement_test PRIVATE
+  add_executable(measurement_test tests/measurement_test.cpp)
+  target_include_directories(measurement_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     ${PCL_INCLUDE_DIRS}
   )
-  target_link_libraries(pcd_measurement_test PRIVATE
-    pcd_cloud_core
+  target_link_libraries(measurement_test PRIVATE
+    point_cloud_core
     Qt5::Test
   )
-  target_compile_options(pcd_measurement_test PRIVATE -Wall -Wextra -Wpedantic)
-  add_test(NAME pcd_measurement_test COMMAND pcd_measurement_test)
+  target_compile_options(measurement_test PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME measurement_test COMMAND measurement_test)
 
-  add_executable(pcd_gui_test
+  add_executable(point_cloud_workbench_gui_test
     tests/main_window_test.cpp
     src/environment_setup_panel.cpp
     src/environment_setup_panel.h
@@ -236,16 +236,16 @@ if(BUILD_TESTING)
     src/rosbag_dialog.cpp
     src/rosbag_dialog.h
   )
-  target_compile_definitions(pcd_gui_test PRIVATE
-    PCD_MEASURE_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
+  target_compile_definitions(point_cloud_workbench_gui_test PRIVATE
+    POINT_CLOUD_WORKBENCH_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
   )
-  target_include_directories(pcd_gui_test PRIVATE
+  target_include_directories(point_cloud_workbench_gui_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     ${PCL_INCLUDE_DIRS}
     ${VTK_INCLUDE_DIRS}
   )
-  target_link_libraries(pcd_gui_test PRIVATE
-    pcd_cloud_core
+  target_link_libraries(point_cloud_workbench_gui_test PRIVATE
+    point_cloud_core
     Qt5::Widgets
     Qt5::Concurrent
     Qt5::Test
@@ -253,19 +253,19 @@ if(BUILD_TESTING)
     ${PCL_LIBRARIES}
     ${VTK_LIBRARIES}
   )
-  target_compile_options(pcd_gui_test PRIVATE -Wall -Wextra -Wpedantic)
-  add_test(NAME pcd_gui_test COMMAND pcd_gui_test)
+  target_compile_options(point_cloud_workbench_gui_test PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME point_cloud_workbench_gui_test COMMAND point_cloud_workbench_gui_test)
   if(COMMAND vtk_module_autoinit)
     vtk_module_autoinit(
-      TARGETS pcd_gui_test
+      TARGETS point_cloud_workbench_gui_test
       MODULES ${VTK_LIBRARIES}
     )
   endif()
 
   add_test(
-    NAME pcd_packaging_test
+    NAME packaging_test
     COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/packaging_test.sh"
-      "${CMAKE_CURRENT_SOURCE_DIR}" "$<TARGET_FILE:pcd_analyze>"
-      "$<TARGET_FILE:pcd_measure>"
+      "${CMAKE_CURRENT_SOURCE_DIR}" "$<TARGET_FILE:point_cloud_analyze>"
+      "$<TARGET_FILE:point_cloud_workbench>"
   )
 endif()
