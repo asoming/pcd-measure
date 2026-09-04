@@ -2,7 +2,7 @@
 set -euo pipefail
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-template_path="${project_dir}/点云测量工具.desktop"
+template_path="${project_dir}/点云工作台.desktop"
 system_dependencies="${project_dir}/scripts/system_dependencies.sh"
 
 if [[ ! -f "${template_path}" ]]; then
@@ -37,7 +37,7 @@ if [[ -n "${missing_system_packages}" ]]; then
 fi
 
 if [[ ! -x "${project_dir}/build/bin/pcd_measure" ]]; then
-  echo "首次安装，正在编译点云测量工具……"
+  echo "首次安装，正在编译点云工作台……"
   "${project_dir}/build.sh"
 fi
 
@@ -68,7 +68,8 @@ if [[ -z "${desktop_dir}" ]]; then
 fi
 
 applications_dir="${PCD_MEASURE_APPLICATIONS_DIR:-${XDG_DATA_HOME:-${HOME:?}/.local/share}/applications}"
-desktop_launcher="${desktop_dir}/点云测量工具.desktop"
+desktop_launcher="${desktop_dir}/点云工作台.desktop"
+legacy_desktop_launcher="${desktop_dir}/点云测量工具.desktop"
 menu_launcher="${applications_dir}/pcd-measure.desktop"
 temporary_launcher="$(mktemp)"
 trap 'rm -f -- "${temporary_launcher}"' EXIT
@@ -83,6 +84,12 @@ mkdir -p -- "${desktop_dir}" "${applications_dir}"
 install -m 755 "${temporary_launcher}" "${desktop_launcher}"
 install -m 755 "${temporary_launcher}" "${menu_launcher}"
 
+if [[ -f "${legacy_desktop_launcher}" && ! -L "${legacy_desktop_launcher}" ]] &&
+  grep -Fq "Exec=\"${project_dir}/run.sh\" %F" "${legacy_desktop_launcher}"; then
+  rm -f -- "${legacy_desktop_launcher}"
+  echo "已迁移旧桌面入口：${legacy_desktop_launcher}"
+fi
+
 if command -v gio >/dev/null 2>&1; then
   gio set "${desktop_launcher}" metadata::trusted true >/dev/null 2>&1 || true
 fi
@@ -91,5 +98,5 @@ if command -v update-desktop-database >/dev/null 2>&1; then
 fi
 
 echo "安装完成：${desktop_launcher}"
-echo "现在可以双击桌面的“点云测量工具”启动。"
+echo "现在可以双击桌面的“点云工作台”启动。"
 echo "如果图标首次显示为普通文本文件，请右键它并选择“允许启动”。"

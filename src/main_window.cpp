@@ -311,7 +311,7 @@ MainWindow::MainWindow(QWidget * parent)
 : QMainWindow(parent)
 {
   setAcceptDrops(true);
-  setWindowTitle(QStringLiteral("点云测量工具"));
+  setWindowTitle(QStringLiteral("点云工作台"));
   setMinimumSize(1100, 700);
   resize(1540, 920);
   picking_tree_ = pcl::make_shared<pcl::KdTreeFLANN<pcl::PointXYZRGB>>();
@@ -1195,7 +1195,7 @@ void MainWindow::build_interface()
   rail_layout->addWidget(rosbag_workspace_button_);
   rail_layout->addStretch(1);
   rail_layout->addWidget(environment_workspace_button_);
-  auto * version = new QLabel(QStringLiteral("LOCAL WORKSPACE\nv2.3.0"), rail);
+  auto * version = new QLabel(QStringLiteral("LOCAL WORKSPACE\nv2.3.1"), rail);
   version->setObjectName(QStringLiteral("workspaceVersion"));
   version->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
   rail_layout->addWidget(version);
@@ -1409,7 +1409,7 @@ void MainWindow::begin_load(const QString & path)
   load_timer_.restart();
   file_name_label_->setText(QStringLiteral("%1  ·  加载中").arg(info.fileName()));
   file_path_label_->setText(info.absolutePath());
-  setWindowTitle(QStringLiteral("正在加载 %1 — 点云测量工具").arg(info.fileName()));
+  setWindowTitle(QStringLiteral("正在加载 %1 — 点云工作台").arg(info.fileName()));
   source_badge_label_->setText(QStringLiteral("LOADING"));
   source_badge_label_->setStyleSheet(QStringLiteral(
     "QLabel#sourceBadge { background: #2C2415; color: #FFCA72; border: 1px solid #8A6933; "
@@ -1457,7 +1457,7 @@ void MainWindow::load_finished()
     save_project_action_->setEnabled(has_cloud);
     if (has_cloud) {
       fill_information_panel();
-      setWindowTitle(QStringLiteral("%1 — 点云测量工具")
+      setWindowTitle(QStringLiteral("%1 — 点云工作台")
         .arg(QFileInfo(current_.path).fileName()));
     }
     source_badge_label_->setText(has_cloud ? QStringLiteral("LOAD ERROR") : QStringLiteral("NO SOURCE"));
@@ -1534,7 +1534,7 @@ void MainWindow::load_finished()
   save_project_action_->setEnabled(true);
   add_recent_file(result.path);
   interaction_mode_changed(interaction_mode_combo_->currentIndex());
-  setWindowTitle(QStringLiteral("%1 — 点云测量工具").arg(QFileInfo(result.path).fileName()));
+  setWindowTitle(QStringLiteral("%1 — 点云工作台").arg(QFileInfo(result.path).fileName()));
   QString source_badge = QStringLiteral("POINT CLOUD");
   if (result.source_kind == CloudSourceKind::Pcd) source_badge = QStringLiteral("PCD");
   if (result.source_kind == CloudSourceKind::Ply) source_badge = QStringLiteral("PLY");

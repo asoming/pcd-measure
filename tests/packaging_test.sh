@@ -94,6 +94,10 @@ done
 
 desktop_dir="${test_dir}/Desktop"
 applications_dir="${test_dir}/applications"
+legacy_desktop_launcher="${desktop_dir}/点云测量工具.desktop"
+mkdir -p "${desktop_dir}"
+printf '[Desktop Entry]\nExec="%s/run.sh" %%F\n' "${project_dir}" \
+  >"${legacy_desktop_launcher}"
 PCD_MEASURE_DESKTOP_DIR="${desktop_dir}" \
 PCD_MEASURE_APPLICATIONS_DIR="${applications_dir}" \
 PCD_MEASURE_SKIP_SYSTEM_SETUP=1 \
@@ -101,20 +105,21 @@ PCD_MEASURE_SKIP_ROSBAG_SETUP=1 \
 PCD_MEASURE_SKIP_ODIN_MAP_SETUP=1 \
   "${project_dir}/install_desktop.sh" >"${test_dir}/install.log"
 
-desktop_launcher="${desktop_dir}/点云测量工具.desktop"
+desktop_launcher="${desktop_dir}/点云工作台.desktop"
 menu_launcher="${applications_dir}/pcd-measure.desktop"
 test -x "${desktop_launcher}"
 test -x "${menu_launcher}"
-grep -Fq "Name=点云测量工具" "${desktop_launcher}"
+test ! -e "${legacy_desktop_launcher}"
+grep -Fq "Name=点云工作台" "${desktop_launcher}"
 grep -Fq "Exec=\"${project_dir}/run.sh\" %F" "${desktop_launcher}"
 grep -Fq "Icon=${project_dir}/assets/pcd_measure.svg" "${desktop_launcher}"
-grep -Fq "Comment=查看、测量与分析 PCD、PLY、BIN 和 OLX 点云，诊断 ROS bag" "${desktop_launcher}"
+grep -Fq "Comment=查看、测量、采集与分析点云，回放并诊断 ROS bag" "${desktop_launcher}"
 if grep -Eiq '^Name=.*odin' "${desktop_launcher}"; then
   echo "product name must not contain Odin" >&2
   exit 1
 fi
 
 grep -Fq './install_desktop.sh' "${project_dir}/README.md"
-grep -Fq '点云测量工具' "${project_dir}/README.md"
+grep -Fq '点云工作台' "${project_dir}/README.md"
 grep -Fq '环境自检与一键安装' "${project_dir}/README.md"
 test -s "${project_dir}/docs/images/environment-setup.png"

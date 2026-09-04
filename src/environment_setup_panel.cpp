@@ -208,7 +208,7 @@ QString EnvironmentSetupPanel::desktop_launcher_path() const
 {
   QString desktop = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
   if (desktop.isEmpty()) desktop = QDir::home().filePath(QStringLiteral("Desktop"));
-  return QDir(desktop).filePath(QStringLiteral("点云测量工具.desktop"));
+  return QDir(desktop).filePath(QStringLiteral("点云工作台.desktop"));
 }
 
 QString EnvironmentSetupPanel::applications_launcher_path() const

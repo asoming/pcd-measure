@@ -194,6 +194,7 @@ private slots:
     QVERIFY2(QFileInfo::exists(fixture_directory_ + QStringLiteral("/rgba_ascii.pcd")),
       "RGBA fixture is missing");
     window_ = std::make_unique<MainWindow>();
+    QCOMPARE(window_->windowTitle(), QStringLiteral("点云工作台"));
     window_->show();
     QTest::qWait(250);
   }
