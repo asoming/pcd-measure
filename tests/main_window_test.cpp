@@ -20,6 +20,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -54,6 +55,7 @@
 #include <vtkRenderer.h>
 
 #include "main_window.h"
+#include "environment_setup_panel.h"
 #include "olx_capture_dialog.h"
 #include "plot_widget.h"
 
@@ -560,6 +562,184 @@ private slots:
         qPrintable(embedded_rosbag_screenshot));
       QVERIFY(QFileInfo(embedded_rosbag_screenshot).size() > 1000);
     }
+    window_->cloud_workspace_button_->click();
+    QCOMPARE(window_->workspace_stack_->currentIndex(), 0);
+    QVERIFY(window_->cloud_toolbar_->isVisible());
+  }
+
+  void environmentWorkspaceAndSudoPasswordSafety()
+  {
+    QVERIFY(window_->environment_panel_);
+    QVERIFY(window_->environment_workspace_button_);
+    window_->environment_workspace_button_->click();
+    QCOMPARE(window_->workspace_stack_->currentIndex(), 3);
+    QVERIFY(window_->environment_workspace_button_->isChecked());
+    QVERIFY(!window_->cloud_toolbar_->isVisible());
+    auto * panel = window_->environment_panel_;
+    QVERIFY(panel->isVisible());
+    QCOMPARE(panel->environment_table_->rowCount(), 6);
+    QCOMPARE(panel->environment_table_->columnCount(), 3);
+    QVERIFY(panel->check_button_->text().contains(QStringLiteral("检测")));
+    QVERIFY(panel->install_button_->text().contains(QStringLiteral("一键安装")));
+    QTRY_VERIFY_WITH_TIMEOUT(panel->check_complete_, 8000);
+    QCOMPARE(panel->process_.state(), QProcess::NotRunning);
+    QVERIFY(panel->system_ready_);
+    QCOMPARE(panel->environment_table_->item(0, 1)->text(), QStringLiteral("READY"));
+    QVERIFY(panel->log_edit_->toPlainText().contains(QStringLiteral("系统编译依赖完整")));
+
+    const QString screenshot = QString::fromLocal8Bit(
+      qgetenv("PCD_MEASURE_TEST_ENVIRONMENT_SCREENSHOT"));
+    if (!screenshot.isEmpty()) {
+      window_->resize(1540, 920);
+      QApplication::processEvents();
+      QVERIFY2(window_->grab().save(screenshot, "PNG"), qPrintable(screenshot));
+      QVERIFY(QFileInfo(screenshot).size() > 1000);
+    }
+
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString fake_sudo = temporary.filePath(QStringLiteral("fake-sudo.sh"));
+    QFile fake(fake_sudo);
+    QVERIFY(fake.open(QIODevice::WriteOnly));
+    const QByteArray fake_script(
+      "#!/usr/bin/env bash\n"
+      "if [[ \"${1:-}\" == '-n' ]]; then\n"
+      "  echo 'fake sudo used cached authentication'\n"
+      "  exit 0\n"
+      "fi\n"
+      "IFS= read -r credential\n"
+      "if [[ -n \"${credential}\" ]]; then\n"
+      "  echo 'fake sudo received stdin credential'\n"
+      "fi\n"
+      "if [[ \"${credential}\" == 'valid-test-password' ]]; then\n"
+      "  exit 0\n"
+      "fi\n"
+      "echo 'fake sudo rejected authentication'\n"
+      "exit 23\n");
+    QCOMPARE(fake.write(fake_script), static_cast<qint64>(fake_script.size()));
+    fake.close();
+    QVERIFY(QFile::setPermissions(fake_sudo, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+      QFileDevice::ExeOwner));
+
+    const auto prepare_missing_system_state = [panel, &fake_sudo]() {
+      panel->missing_system_packages_ = QStringList{
+        QStringLiteral("fake-package-for-test")};
+      panel->system_ready_ = false;
+      panel->build_ready_ = true;
+      panel->rosbag_ready_ = true;
+      panel->map_converter_ready_ = true;
+      panel->desktop_ready_ = true;
+      panel->check_complete_ = true;
+      panel->installation_running_ = false;
+      panel->rosbag_check_->setChecked(false);
+      panel->map_converter_check_->setChecked(false);
+      panel->desktop_check_->setChecked(false);
+      panel->sudo_program_ = fake_sudo;
+      panel->force_password_prompt_for_test_ = true;
+      panel->update_table();
+    };
+
+    prepare_missing_system_state();
+    panel->sudo_program_ = temporary.filePath(QStringLiteral("missing-sudo"));
+    panel->install_missing_environment();
+    QVERIFY(!panel->installation_running_);
+    QCOMPARE(panel->process_.state(), QProcess::NotRunning);
+    QVERIFY(panel->overall_status_label_->text().contains(QStringLiteral("缺少 sudo")));
+
+    prepare_missing_system_state();
+    bool cancel_prompt_seen = false;
+    QVERIFY(drive_modal([panel]() { panel->install_missing_environment(); },
+      [&cancel_prompt_seen](QDialog * dialog) {
+        auto * input = qobject_cast<QInputDialog *>(dialog);
+        if (!input) return false;
+        cancel_prompt_seen = true;
+        input->reject();
+        return true;
+      }));
+    QVERIFY(cancel_prompt_seen);
+    QVERIFY(!panel->installation_running_);
+    QCOMPARE(panel->process_.state(), QProcess::NotRunning);
+    QVERIFY(panel->overall_status_label_->text().contains(QStringLiteral("CANCELLED")));
+
+    prepare_missing_system_state();
+    bool empty_prompt_seen = false;
+    QVERIFY(drive_modal([panel]() { panel->install_missing_environment(); },
+      [&empty_prompt_seen](QDialog * dialog) {
+        auto * input = qobject_cast<QInputDialog *>(dialog);
+        if (!input) return false;
+        empty_prompt_seen = true;
+        input->setTextValue(QString());
+        input->accept();
+        return true;
+      }));
+    QVERIFY(empty_prompt_seen);
+    QVERIFY(!panel->installation_running_);
+    QCOMPARE(panel->process_.state(), QProcess::NotRunning);
+    QVERIFY(panel->overall_status_label_->text().contains(QStringLiteral("密码为空")));
+
+    panel->log_edit_->clear();
+    prepare_missing_system_state();
+    const QString secret = QStringLiteral("do-not-log-this-password");
+    bool password_prompt_seen = false;
+    bool password_mode = false;
+    QVERIFY(drive_modal([panel]() { panel->install_missing_environment(); },
+      [&password_prompt_seen, &password_mode, &secret](QDialog * dialog) {
+        auto * input = qobject_cast<QInputDialog *>(dialog);
+        if (!input) return false;
+        auto * editor = input->findChild<QLineEdit *>();
+        if (!editor) return false;
+        password_prompt_seen = true;
+        password_mode = editor->echoMode() == QLineEdit::Password;
+        editor->setText(secret);
+        input->accept();
+        return true;
+      }));
+    QVERIFY(password_prompt_seen);
+    QVERIFY(password_mode);
+    QTRY_VERIFY_WITH_TIMEOUT(!panel->installation_running_, 5000);
+    QCOMPARE(panel->process_.state(), QProcess::NotRunning);
+    QVERIFY(panel->overall_status_label_->text().contains(QStringLiteral("ERROR")));
+    QVERIFY(panel->log_edit_->toPlainText().contains(
+      QStringLiteral("fake sudo received stdin credential")));
+    QVERIFY(!panel->log_edit_->toPlainText().contains(secret));
+    QVERIFY(!panel->process_.arguments().join(QLatin1Char(' ')).contains(secret));
+
+    panel->log_edit_->clear();
+    prepare_missing_system_state();
+    const QString valid_secret = QStringLiteral("valid-test-password");
+    QVERIFY(drive_modal([panel]() { panel->install_missing_environment(); },
+      [&valid_secret](QDialog * dialog) {
+        auto * input = qobject_cast<QInputDialog *>(dialog);
+        if (!input) return false;
+        auto * editor = input->findChild<QLineEdit *>();
+        if (!editor) return false;
+        editor->setText(valid_secret);
+        input->accept();
+        return true;
+      }));
+    QTRY_VERIFY_WITH_TIMEOUT(panel->check_complete_ && !panel->installation_running_, 8000);
+    QVERIFY(panel->system_ready_);
+    QVERIFY(panel->log_edit_->toPlainText().contains(
+      QStringLiteral("fake sudo received stdin credential")));
+    QVERIFY(!panel->log_edit_->toPlainText().contains(valid_secret));
+    QVERIFY(!panel->process_.arguments().join(QLatin1Char(' ')).contains(valid_secret));
+
+    panel->log_edit_->clear();
+    prepare_missing_system_state();
+    panel->force_password_prompt_for_test_ = false;
+    panel->install_missing_environment();
+    QTRY_VERIFY_WITH_TIMEOUT(panel->check_complete_ && !panel->installation_running_, 8000);
+    QVERIFY(panel->system_ready_);
+    QVERIFY(panel->log_edit_->toPlainText().contains(
+      QStringLiteral("fake sudo used cached authentication")));
+
+    panel->sudo_program_ = QStringLiteral("/usr/bin/sudo");
+    panel->force_password_prompt_for_test_ = false;
+    panel->rosbag_check_->setChecked(true);
+    panel->map_converter_check_->setChecked(true);
+    panel->desktop_check_->setChecked(true);
+    panel->check_environment();
+    QTRY_VERIFY_WITH_TIMEOUT(panel->check_complete_, 8000);
     window_->cloud_workspace_button_->click();
     QCOMPARE(window_->workspace_stack_->currentIndex(), 0);
     QVERIFY(window_->cloud_toolbar_->isVisible());
@@ -1965,12 +2145,16 @@ private slots:
     QVERIFY2(load(xyz), "XYZ fixture failed to load");
     window_->resize(window_->minimumSize());
     QApplication::processEvents();
-    auto * scroll = window_->findChild<QScrollArea *>();
+    auto * scroll = window_->findChild<QScrollArea *>(
+      QStringLiteral("cloudInformationScroll"));
     auto * toolbar = window_->findChild<QToolBar *>();
     QVERIFY(scroll);
     QVERIFY(toolbar);
     QVERIFY(scroll->viewport()->width() > 250);
-    QVERIFY(scroll->viewport()->height() > 300);
+    QVERIFY2(scroll->viewport()->height() > 300,
+      qPrintable(QStringLiteral("unexpected scroll viewport %1x%2 (%3)")
+        .arg(scroll->viewport()->width()).arg(scroll->viewport()->height(), 0, 10)
+        .arg(scroll->objectName())));
     QVERIFY(toolbar->height() > 30);
     QVERIFY(window_->centralWidget()->rect().contains(window_->centralWidget()->rect().center()));
     window_->switch_workspace(1);
@@ -1986,6 +2170,11 @@ private slots:
     QVERIFY(bag_tabs);
     QVERIFY(bag_tabs->isVisible());
     QVERIFY(bag_tabs->width() >= 700);
+    window_->switch_workspace(3);
+    QApplication::processEvents();
+    QVERIFY(window_->environment_panel_->isVisible());
+    QVERIFY(window_->environment_panel_->environment_table_->isVisible());
+    QVERIFY(window_->environment_panel_->environment_table_->width() >= 400);
     window_->switch_workspace(0);
     QVERIFY(window_->cloud_toolbar_->isVisible());
     const QString output = QString::fromLocal8Bit(qgetenv("PCD_MEASURE_TEST_UI_SCREENSHOT"));

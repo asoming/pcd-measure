@@ -3,10 +3,37 @@ set -euo pipefail
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 template_path="${project_dir}/点云测量工具.desktop"
+system_dependencies="${project_dir}/scripts/system_dependencies.sh"
 
 if [[ ! -f "${template_path}" ]]; then
   echo "找不到桌面图标模板：${template_path}" >&2
   exit 2
+fi
+
+if [[ ! -x "${system_dependencies}" ]]; then
+  echo "找不到系统依赖检查器：${system_dependencies}" >&2
+  exit 2
+fi
+
+missing_system_packages="$(${system_dependencies} missing)"
+if [[ -n "${missing_system_packages}" ]]; then
+  echo "检测到缺失的系统依赖："
+  while IFS= read -r package_name; do
+    printf '  %s\n' "${package_name}"
+  done <<< "${missing_system_packages}"
+  if [[ "${PCD_MEASURE_SKIP_SYSTEM_SETUP:-0}" == "1" ]]; then
+    echo "已跳过系统依赖安装，无法继续编译。" >&2
+    exit 3
+  fi
+  if (( EUID == 0 )); then
+    "${system_dependencies}" install
+  elif command -v sudo >/dev/null 2>&1; then
+    echo "需要 sudo 权限安装固定的软件包列表。"
+    sudo -- "${system_dependencies}" install
+  else
+    echo "没有找到 sudo。请以管理员身份运行：${system_dependencies} install" >&2
+    exit 3
+  fi
 fi
 
 if [[ ! -x "${project_dir}/build/bin/pcd_measure" ]]; then

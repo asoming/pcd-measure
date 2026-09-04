@@ -96,6 +96,7 @@
 #include "olx_capture_dialog.h"
 #include "rosbag_dialog.h"
 #include "rosbag_tools.h"
+#include "environment_setup_panel.h"
 
 namespace
 {
@@ -740,6 +741,7 @@ void MainWindow::build_interface()
   splitter->addWidget(viewer_panel);
 
   auto * scroll_area = new QScrollArea;
+  scroll_area->setObjectName(QStringLiteral("cloudInformationScroll"));
   scroll_area->setWidgetResizable(true);
   scroll_area->setFrameShape(QFrame::NoFrame);
   scroll_area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -1116,8 +1118,10 @@ void MainWindow::build_interface()
   workspace_stack_->addWidget(central);
   capture_panel_ = new OlxCaptureDialog(workspace_stack_, true);
   rosbag_panel_ = new RosbagDiagnosticDialog(QString(), workspace_stack_, true);
+  environment_panel_ = new EnvironmentSetupPanel(workspace_stack_);
   workspace_stack_->addWidget(capture_panel_);
   workspace_stack_->addWidget(rosbag_panel_);
+  workspace_stack_->addWidget(environment_panel_);
   connect(capture_panel_, &OlxCaptureDialog::openOlxRequested, this,
     [this](const QString & path) {
       switch_workspace(0);
@@ -1162,14 +1166,18 @@ void MainWindow::build_interface()
     QStringLiteral("●  实时采集\n    LIVE"), QStringLiteral("实时设备采集工作台"));
   rosbag_workspace_button_ = make_workspace_button(
     QStringLiteral("▶  Bag 诊断\n    INSPECT"), QStringLiteral("ROS Bag 工作台"));
+  environment_workspace_button_ = make_workspace_button(
+    QStringLiteral("◆  环境安装\n    SETUP"), QStringLiteral("环境自检与一键安装工作台"));
   cloud_workspace_button_->setProperty("workspaceIndex", 0);
   capture_workspace_button_->setProperty("workspaceIndex", 1);
   rosbag_workspace_button_->setProperty("workspaceIndex", 2);
+  environment_workspace_button_->setProperty("workspaceIndex", 3);
   auto * workspace_group = new QButtonGroup(shell);
   workspace_group->setExclusive(true);
   workspace_group->addButton(cloud_workspace_button_, 0);
   workspace_group->addButton(capture_workspace_button_, 1);
   workspace_group->addButton(rosbag_workspace_button_, 2);
+  workspace_group->addButton(environment_workspace_button_, 3);
   cloud_workspace_button_->setChecked(true);
   connect(cloud_workspace_button_, &QToolButton::clicked, this,
     [this]() { switch_workspace(0); });
@@ -1177,11 +1185,17 @@ void MainWindow::build_interface()
     [this]() { open_olx_capture_dialog(); });
   connect(rosbag_workspace_button_, &QToolButton::clicked, this,
     [this]() { open_rosbag_dialog(); });
+  connect(environment_workspace_button_, &QToolButton::clicked, this,
+    [this]() {
+      switch_workspace(3);
+      environment_panel_->activate_workspace();
+    });
   rail_layout->addWidget(cloud_workspace_button_);
   rail_layout->addWidget(capture_workspace_button_);
   rail_layout->addWidget(rosbag_workspace_button_);
   rail_layout->addStretch(1);
-  auto * version = new QLabel(QStringLiteral("LOCAL WORKSPACE\nv2.2.1"), rail);
+  rail_layout->addWidget(environment_workspace_button_);
+  auto * version = new QLabel(QStringLiteral("LOCAL WORKSPACE\nv2.3.0"), rail);
   version->setObjectName(QStringLiteral("workspaceVersion"));
   version->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
   rail_layout->addWidget(version);
@@ -1248,10 +1262,12 @@ void MainWindow::switch_workspace(int index)
   if (cloud_workspace_button_) cloud_workspace_button_->setChecked(index == 0);
   if (capture_workspace_button_) capture_workspace_button_->setChecked(index == 1);
   if (rosbag_workspace_button_) rosbag_workspace_button_->setChecked(index == 2);
-  const std::array<QString, 3> messages{
+  if (environment_workspace_button_) environment_workspace_button_->setChecked(index == 3);
+  const std::array<QString, 4> messages{
     QStringLiteral("点云测量工作台"),
     QStringLiteral("实时设备采集工作台 · 预览只影响显示，不影响 OLX 全量写入"),
-    QStringLiteral("ROS Bag 回放与离线诊断工作台")};
+    QStringLiteral("ROS Bag 回放与离线诊断工作台"),
+    QStringLiteral("环境自检与一键安装工作台 · 只安装明确列出的缺失项")};
   statusBar()->showMessage(messages[static_cast<std::size_t>(index)]);
 }
 

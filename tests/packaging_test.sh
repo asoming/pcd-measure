@@ -22,8 +22,31 @@ bash -n "${project_dir}/scripts/rosbag_play.sh"
 bash -n "${project_dir}/scripts/rosbag_diagnose.sh"
 bash -n "${project_dir}/scripts/setup_rosbag_tools.sh"
 bash -n "${project_dir}/scripts/setup_odin_map_tools.sh"
+bash -n "${project_dir}/scripts/system_dependencies.sh"
 bash -n "${project_dir}/tests/rosbag_playback_test.sh"
+test -x "${project_dir}/scripts/system_dependencies.sh"
 "${project_dir}/tools/rosbag_diagnose.py" --help >/dev/null
+
+expected_system_packages=$'git\ncurl\nbuild-essential\ncmake\npython3-venv\npython3-pip\npython3-numpy\nqtbase5-dev\nlibpcl-dev\nlibvtk9-dev\nlibvtk9-qt-dev'
+actual_system_packages="$("${project_dir}/scripts/system_dependencies.sh" list)"
+if [[ "${actual_system_packages}" != "${expected_system_packages}" ]]; then
+  echo "system dependency allowlist changed unexpectedly" >&2
+  exit 1
+fi
+"${project_dir}/scripts/system_dependencies.sh" check >/dev/null
+if (( EUID != 0 )); then
+  if "${project_dir}/scripts/system_dependencies.sh" install \
+    >"${test_dir}/unprivileged-install.out" 2>"${test_dir}/unprivileged-install.err"; then
+    echo "system dependency installer unexpectedly ran without root" >&2
+    exit 1
+  fi
+  grep -Fq "root" "${test_dir}/unprivileged-install.err"
+fi
+if "${project_dir}/scripts/system_dependencies.sh" unsupported \
+  >"${test_dir}/invalid-system-command.out" 2>"${test_dir}/invalid-system-command.err"; then
+  echo "system dependency helper unexpectedly accepted an invalid command" >&2
+  exit 1
+fi
 
 if "${analyzer}" >"${test_dir}/missing-argument.out" 2>"${test_dir}/missing-argument.err"; then
   echo "pcd_analyze unexpectedly accepted an empty argument list" >&2
@@ -73,6 +96,7 @@ desktop_dir="${test_dir}/Desktop"
 applications_dir="${test_dir}/applications"
 PCD_MEASURE_DESKTOP_DIR="${desktop_dir}" \
 PCD_MEASURE_APPLICATIONS_DIR="${applications_dir}" \
+PCD_MEASURE_SKIP_SYSTEM_SETUP=1 \
 PCD_MEASURE_SKIP_ROSBAG_SETUP=1 \
 PCD_MEASURE_SKIP_ODIN_MAP_SETUP=1 \
   "${project_dir}/install_desktop.sh" >"${test_dir}/install.log"
@@ -92,3 +116,5 @@ fi
 
 grep -Fq './install_desktop.sh' "${project_dir}/README.md"
 grep -Fq '点云测量工具' "${project_dir}/README.md"
+grep -Fq '环境自检与一键安装' "${project_dir}/README.md"
+test -s "${project_dir}/docs/images/environment-setup.png"

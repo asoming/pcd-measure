@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(pcd_measure VERSION 2.2.1 LANGUAGES C CXX)
+project(pcd_measure VERSION 2.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,6 +50,8 @@ target_compile_options(pcd_cloud_core PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(pcd_measure
   src/main.cpp
+  src/environment_setup_panel.cpp
+  src/environment_setup_panel.h
   src/main_window.cpp
   src/main_window.h
   src/olx_capture_dialog.cpp
@@ -223,6 +225,8 @@ if(BUILD_TESTING)
 
   add_executable(pcd_gui_test
     tests/main_window_test.cpp
+    src/environment_setup_panel.cpp
+    src/environment_setup_panel.h
     src/main_window.cpp
     src/main_window.h
     src/olx_capture_dialog.cpp

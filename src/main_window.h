@@ -47,6 +47,7 @@ class vtkGenericOpenGLRenderWindow;
 class vtkRenderer;
 class OlxCaptureDialog;
 class RosbagDiagnosticDialog;
+class EnvironmentSetupPanel;
 
 enum class CropSelectionType
 {
@@ -413,8 +414,10 @@ private:
   QToolButton * cloud_workspace_button_ = nullptr;
   QToolButton * capture_workspace_button_ = nullptr;
   QToolButton * rosbag_workspace_button_ = nullptr;
+  QToolButton * environment_workspace_button_ = nullptr;
   OlxCaptureDialog * capture_panel_ = nullptr;
   RosbagDiagnosticDialog * rosbag_panel_ = nullptr;
+  EnvironmentSetupPanel * environment_panel_ = nullptr;
   QPushButton * finish_polyline_button_ = nullptr;
   QPushButton * reset_crop_button_ = nullptr;
   QMenu * recent_menu_ = nullptr;
